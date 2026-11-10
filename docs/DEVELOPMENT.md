@@ -31,6 +31,7 @@ dotnet run --project tests/SnipLite.SelfTest -c Release -- --selftest
 dotnet run --project tests/SnipLite.SelfTest -c Release -- --menu-test
 dotnet run --project tests/SnipLite.SelfTest -c Release -- --target-test
 dotnet run --project tests/SnipLite.SelfTest -c Release -- --text-test
+dotnet run --project tests/SnipLite.SelfTest -c Release -- --pin-test
 dotnet run --project tests/SnipLite.SelfTest -c Release -- --translation-test
 ```
 

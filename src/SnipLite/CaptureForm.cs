@@ -781,6 +781,13 @@ internal sealed partial class CaptureForm : Form
 
     protected override bool ProcessCmdKey(ref Message m, Keys keyData)
     {
+        // RegisterHotKey normally routes this through TrayContext. Also handle
+        // the configured key locally when the global registration is disabled.
+        if (keyData != Keys.None && keyData == _settings.PinHotkey)
+        {
+            TryPinSelection();
+            return true;
+        }
         if (TranslationVisible && _ime is null && keyData == Keys.Escape) { CloseTranslation(); return true; }
         if (_qrText is not null)
         {
@@ -859,12 +866,10 @@ internal sealed partial class CaptureForm : Form
         if (keyData is Keys.Tab or (Keys.Shift | Keys.Tab)) { CycleRegion(keyData.HasFlag(Keys.Shift)); return true; }
         if (keyData == (Keys.Control | Keys.Shift | Keys.S)) { ExecuteAction(CaptureAction.QuickSave, false); return true; }
 
-        // F3 is a registered global hotkey, so it never reaches this window;
-        // Ctrl+T is the in-capture "pin this selection" shortcut.
+        // Ctrl+T remains an in-capture alias for the pin action.
         if (keyData == (Keys.Control | Keys.T))
         {
-            _resultPin = true;
-            Confirm();
+            TryPinSelection();
             return true;
         }
 
@@ -1038,8 +1043,7 @@ internal sealed partial class CaptureForm : Form
             case "close": Cancel(); return;
 
             case "pin":
-                _resultPin = true;
-                Confirm();
+                TryPinSelection();
                 return;
         }
     }
@@ -1436,6 +1440,11 @@ internal sealed partial class CaptureForm : Form
     private void UpdateHint()
     {
         var hint = _barVisible ? AnnotationBar.Hint(_bar.HitTest(_cursor), _ocrMode) : "";
+        if (_barVisible && _bar.HitTest(_cursor) == "pin")
+        {
+            var binding = HotkeyDefinitions.Format(_settings.PinHotkey);
+            hint = _settings.PinHotkey is Keys.None or (Keys.Control | Keys.T) ? "贴图（Ctrl+T）" : $"贴图（{binding} / Ctrl+T）";
+        }
         if (TranslationVisible && _bar.HitTest(_cursor) == "translate") hint = "关闭截图翻译（Esc）";
         if (_qrText is not null && _bar.MessageBounds.Contains(_cursor) && _bar.HitTest(_cursor) != "resultcopy") hint = _qrText;
         if (_hoverHint == hint) return;
@@ -1524,6 +1533,16 @@ internal sealed partial class CaptureForm : Form
             Bounds = new Rectangle(crop.X + _virtual.X, crop.Y + _virtual.Y, crop.Width, crop.Height),
             Pin = _resultPin
         });
+    }
+
+    internal bool TryPinSelection()
+    {
+        if (_finished || !_hasSelection || _dragging || _current is not null || _movingText || _resizingText || _dragMode != 0)
+            return false;
+        if (Crop.Width < 1 || Crop.Height < 1) return false;
+        _resultPin = true;
+        Confirm();
+        return true;
     }
 
     private void Finish(CaptureResult result)

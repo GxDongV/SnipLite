@@ -160,7 +160,7 @@ internal sealed class TrayContext : ApplicationContext
     }
     private void HandleResult(CaptureResult result, CaptureMode mode, bool forceCopy)
     {
-        if (mode == CaptureMode.Ocr) { _ = RunOcrAsync(result.Image); return; }
+        if (mode == CaptureMode.Ocr && !result.Pin && result.Action != CaptureAction.Pin) { _ = RunOcrAsync(result.Image); return; }
         var transferred = false;
         try
         {
@@ -203,7 +203,7 @@ internal sealed class TrayContext : ApplicationContext
     }
     private void PasteFromClipboard()
     {
-        if (_overlay is { IsDisposed: false, Visible: true }) return;
+        if (TryPinActiveCapture(_overlay)) return;
         if (PinForm.RestoreHiddenOrFlashing(_settings)) return;
         var sequence = GetClipboardSequenceNumber();
         if (_lastPasteSequence == sequence)
@@ -229,6 +229,15 @@ internal sealed class TrayContext : ApplicationContext
             Toast.Show("剪贴板中没有可贴出的内容，也没有可恢复的贴图");
         }
         catch (Exception ex) { AppLog.Write("贴图失败", ex); Toast.Error("贴图失败：" + ex.Message); }
+    }
+
+    internal static bool TryPinActiveCapture(CaptureForm? overlay)
+    {
+        if (overlay is not { IsDisposed: false, Visible: true }) return false;
+        // An active capture owns the key even before a selection is complete.
+        // Never paste old clipboard contents over the capture overlay.
+        overlay.TryPinSelection();
+        return true;
     }
     private void Restart()
     {
