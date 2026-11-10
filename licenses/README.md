@@ -5,6 +5,7 @@ These are unmodified copies of upstream license and third-party notice files.
 | Local file | Upstream source |
 | --- | --- |
 | `ZXing-Apache-2.0.txt` | [ZXing.Net COPYING](https://github.com/micjahn/ZXing.Net/blob/master/COPYING) |
+| `Inno-Setup-LICENSE.txt` | License distributed with the official signed Inno Setup 6.7.4 compiler |
 | `dotnet/runtime-LICENSE.txt` | [.NET runtime v10.0.12](https://github.com/dotnet/runtime/blob/v10.0.12/LICENSE.TXT) |
 | `dotnet/runtime-THIRD-PARTY-NOTICES.txt` | [.NET runtime v10.0.12 notices](https://github.com/dotnet/runtime/blob/v10.0.12/THIRD-PARTY-NOTICES.TXT) |
 | `dotnet/wpf-LICENSE.txt` | [WPF v10.0.12](https://github.com/dotnet/wpf/blob/v10.0.12/LICENSE.TXT) |

@@ -53,9 +53,13 @@ dotnet run --project tests/SnipLite.SelfTest -c Release -- --text-test
 ```powershell
 .\scripts\publish.ps1
 .\scripts\publish.ps1 -SelfContained
+.\scripts\publish.ps1 -SingleFile
+.\scripts\release.ps1 -IsccPath 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
 .\scripts\clean.ps1
 ```
 
 发布脚本仅发布正式项目，产物位于 `artifacts/publish/win-x64/`。提交源码时排除 `bin/`、`obj/`、`artifacts/`、测试输出和本地参考材料；这些目录已配置在 `.gitignore` 中。
 
 第三方许可证的来源与版本见 `licenses/README.md`。更新依赖或 .NET 运行时版本时，同步核对对应的声明。
+
+`release.ps1` 为同一版本生成独立运行的单文件 EXE、Inno Setup 安装 EXE、解压 ZIP 及 `SHA256SUMS.txt`。安装版按当前用户安装，卸载时保留用户设置和自行添加的文件。正式程序内嵌许可证，单文件模式也可在帮助页离线查看。

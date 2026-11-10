@@ -28,3 +28,10 @@ SnipLite uses the .NET runtime, Windows desktop framework, Windows OCR, and Wind
 `Microsoft.Windows.SDK.NET.dll` and `WinRT.Runtime.dll` are supplied by the implicit `Microsoft.Windows.SDK.NET.Ref` targeting pack (10.0.19041.57 in the verified build). The package is provided by Microsoft and references the [Windows SDK license](https://aka.ms/WinSDKLicenseURL). Windows Runtime interop is developed in [CsWinRT](https://github.com/microsoft/CsWinRT).
 
 These components retain their original terms; SnipLite's MIT license applies to this project's original source code.
+
+## Windows installer
+
+The setup executable is built with Inno Setup 6.7.4, copyright Jordan Russell and Martijn Laan. The compiler is a build tool and is not included in this source repository. Inno Setup's original installer notices are preserved.
+
+- Upstream: https://jrsoftware.org/
+- License: [Inno Setup License](licenses/Inno-Setup-LICENSE.txt)

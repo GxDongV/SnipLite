@@ -35,7 +35,17 @@ dotnet run --project src/SnipLite/SnipLite.csproj -c Release --no-build
 
 ### 运行发布包
 
-解压发布目录后运行 `SnipLite.exe`。依赖框架的发布包需要安装 **.NET 10 Desktop Runtime**；独立运行包包含所需运行时，体积会更大。
+在 [Releases](https://github.com/GxDongV/SnipLite/releases) 选择 Windows x64 版本：
+
+| 版本 | 使用方式 |
+| --- | --- |
+| `single.exe` 单文件版 | 下载一个 EXE 后直接运行 |
+| `setup.exe` 安装版 | 通过向导安装，提供开始菜单快捷方式和卸载入口 |
+| `portable.zip` 解压版 | 完整解压后运行 `SnipLite.exe` |
+
+这三种发布包均包含 .NET 运行时，无需另外安装 .NET。单文件版首次启动会释放原生依赖。MIT 与第三方许可证可在「帮助 → 开源许可证」中离线查看。
+
+开发脚本也支持生成较小的依赖框架包，这类包需要 **.NET 10 Desktop Runtime**。
 
 当前目标系统最低为 Windows 10 2004（Build 19041）。实际可用性还取决于所用 .NET 运行时与系统组件；OCR 需要 Windows 中安装相应的识别语言包。
 
@@ -98,6 +108,9 @@ dotnet build SnipLite.slnx -c Release
 
 # 包含运行时，可在目标机器上独立运行
 .\scripts\publish.ps1 -SelfContained
+
+# 单文件独立运行包
+.\scripts\publish.ps1 -SingleFile
 ```
 
 输出位于 `artifacts/publish/win-x64/`，发布脚本会附带 README、项目许可证与第三方声明。清理所有构建和打包产物：
@@ -105,6 +118,14 @@ dotnet build SnipLite.slnx -c Release
 ```powershell
 .\scripts\clean.ps1
 ```
+
+同时生成三个发布包及 SHA-256 校验文件，需要安装 [Inno Setup](https://jrsoftware.org/isinfo.php)：
+
+```powershell
+.\scripts\release.ps1 -IsccPath 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+```
+
+产物位于 `artifacts/release/<版本号>/`，不会提交到源码仓库。
 
 ## 项目结构
 

@@ -370,7 +370,10 @@ internal sealed partial class PreferencesForm : Form
         Row("运行环境", MakeStatic(".NET 10 · WinForms")); Row("识别引擎", MakeStatic("Windows OCR · ZXing.Net"));
         Row("GitHub 项目", MakeWebLink(AppInfo.RepositoryUrl));
         Row("问题反馈", MakeWebLink(AppInfo.IssuesUrl));
-        Row("开源许可证", MakeStatic("MIT License"));
+        var license = new LinkLabel { Text = "MIT License / Third-party notices", AutoSize = true,
+            LinkColor = _s.Accent, BackColor = Page, Cursor = Cursors.Hand, TabStop = true };
+        license.LinkClicked += (_, _) => LicenseNotices.Show(this);
+        Row("开源许可证", license);
         HintText("截图、贴图、标注、文字与二维码识别均在本机处理。");
     }
 

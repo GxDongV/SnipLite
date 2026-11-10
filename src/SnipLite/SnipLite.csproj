@@ -24,6 +24,11 @@
   <ItemGroup>
     <InternalsVisibleTo Include="SnipLite.SelfTest" />
     <PackageReference Include="ZXing.Net.Bindings.Windows.Compatibility" Version="0.16.17" />
+    <EmbeddedResource Include="../../LICENSE" LogicalName="SnipLite.Notices.LICENSE" />
+    <EmbeddedResource Include="../../THIRD_PARTY_NOTICES.md" LogicalName="SnipLite.Notices.THIRD_PARTY_NOTICES.md" />
+    <EmbeddedResource Include="../../licenses/**/*.txt">
+      <LogicalName>SnipLite.Notices.%(RecursiveDir)%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
 </Project>
