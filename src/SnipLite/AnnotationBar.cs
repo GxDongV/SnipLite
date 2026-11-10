@@ -64,7 +64,7 @@ internal sealed class AnnotationBar
     public bool OcrMode { get; set; }
     public bool TranslationMode { get; set; }
     public int AttachedPanelHeight { get; set; }
-    private bool RecognitionMode => OcrMode || TranslationMode;
+    public bool OcrCopyVisible { get; set; }
     public bool CanUndo { get; set; }
     public bool CanRedo { get; set; }
     public string Status { get; set; } = "";
@@ -141,7 +141,7 @@ internal sealed class AnnotationBar
         var rows = (Palette.Length + Columns - 1) / Columns;
         var gridHeight = rows * step;
 
-        var showOptions = !RecognitionMode && Tool != ToolKind.None;
+        var showOptions = !OcrMode && Tool != ToolKind.None;
 
         // ---------------------------------------------------------- row 1
         var x = pad;
@@ -156,17 +156,14 @@ internal sealed class AnnotationBar
             x += button + gap;
         }
 
-        if (!RecognitionMode)
-        {
-            Cell("rect");
-            Cell("ellipse");
-            Cell("arrow");
-            Cell("pen");
-            Cell("marker");
-            Cell("mosaic");
-            Cell("text");
-            Cell("eraser");
-        }
+        Cell("rect");
+        Cell("ellipse");
+        Cell("arrow");
+        Cell("pen");
+        Cell("marker");
+        Cell("mosaic");
+        Cell("text");
+        Cell("eraser");
 
         void Divider()
         {
@@ -175,37 +172,21 @@ internal sealed class AnnotationBar
             x += group;
         }
 
-        if (!RecognitionMode)
-        {
-            Divider();
-            Cell("undo");
-            Cell("redo");
-            Divider();
-        }
+        Divider();
+        Cell("undo");
+        Cell("redo");
+        Divider();
 
-        Cell(TranslationMode ? "translate" : "ocr");
-        if (!RecognitionMode) { Cell("translate"); Cell("qr"); }
+        Cell("ocr");
+        Cell("translate"); Cell("qr");
         Divider();
 
         Cell("close");
-        if (!RecognitionMode)
-        {
-            Cell("pin");
-            Cell("save");
-        }
+        Cell("pin");
+        Cell("save");
         Cell("copy");
 
         var mainWidth = x - gap + pad;
-        if (RecognitionMode)
-        {
-            mainWidth = Math.Max(mainWidth, Px(410));
-            for (var i = 0; i < _items.Count; i++)
-            {
-                var item = _items[i];
-                if (item.Id is "copy" or "close")
-                    _items[i] = (new Rectangle(mainWidth - pad - button - (item.Id == "close" ? button + gap : 0), y, button, button), item.Id);
-            }
-        }
         var mainHeight = button + pad * 2;
 
         _main = new Rectangle(0, 0, mainWidth, mainHeight);
@@ -294,9 +275,11 @@ internal sealed class AnnotationBar
         _message = Rectangle.Empty;
         if (Status.Length > 0)
         {
-            _message = new Rectangle(0, totalHeight - 1, mainWidth, Px(32));
+            _message = new Rectangle(0, totalHeight - 1, mainWidth, Px(OcrMode ? 44 : 32));
             if (ResultCopyVisible)
                 Add(_message.Right - Px(62), _message.Top + Px(4), Px(56), _message.Height - Px(8), "resultcopy");
+            if (OcrMode && OcrCopyVisible)
+                Add(_message.Right - Px(85), _message.Top + Px(5), Px(80), Px(34), "ocrtextcopy");
             totalWidth = Math.Max(totalWidth, _message.Width);
             totalHeight = _message.Bottom;
         }
@@ -362,8 +345,8 @@ internal sealed class AnnotationBar
         "ocr" => ocrMode ? "退出文字选择（Esc）" : "识别文字（OCR）",
         "qr" => "识别二维码 / 条码",
         "translate" => "截图翻译（默认英语 → 中文）",
-        "copy" => ocrMode ? "复制选中文字（Ctrl+C）" : "复制截图（Ctrl+C）",
-        "close" => ocrMode ? "退出文字选择（Esc）" : "取消截图（Esc）",
+        "copy" => ocrMode ? "复制截图" : "复制截图（Ctrl+C）",
+        "close" => ocrMode ? "取消截图" : "取消截图（Esc）",
         "pin" => "贴图（Ctrl+T）", "save" => "另存为（Ctrl+S）",
         "rect" => "矩形（R）", "ellipse" => "椭圆（E）", "arrow" => "箭头（A）",
         "pen" => "铅笔（P）", "marker" => "马克笔（H）", "text" => "文字（T）",
@@ -374,6 +357,7 @@ internal sealed class AnnotationBar
         "opacity" => "拖动调整马克笔不透明度", "strength" => "拖动调整马赛克程度",
         "arrowstyle" => "箭头样式", "bold" => "粗体", "italic" => "斜体",
         "resultcopy" => "复制二维码 / 条码完整内容",
+        "ocrtextcopy" => "复制选中文字，未选字时复制全部识别结果",
         _ => ""
     };
 
@@ -393,23 +377,17 @@ internal sealed class AnnotationBar
             using var font = new Font("Microsoft YaHei UI", 12f * Scale, GraphicsUnit.Pixel);
             var text = Rectangle.Inflate(_message, -Px(10), 0);
             if (ResultCopyVisible) text.Width -= Px(64);
+            if (OcrMode && OcrCopyVisible) text.Width -= Px(87);
             TextRenderer.DrawText(g, Status.Replace("\r", " ").Replace("\n", " "), font, text, IconColor,
                 TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
         }
-        if (RecognitionMode)
-        {
-            using var font = new Font("Microsoft YaHei UI", 12 * Scale, GraphicsUnit.Pixel);
-            var label = new Rectangle(_main.Left + Px(52), _main.Top, _main.Width - Px(140), _main.Height);
-            TextRenderer.DrawText(g, TranslationMode ? "截图翻译 · Esc 返回" : "文字识别 · 划词选择", font, label, IconColor, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
-        }
-
         foreach (var (rect, id) in _items)
         {
-            if (id == "resultcopy")
+            if (id is "resultcopy" or "ocrtextcopy")
             {
                 using var back = new SolidBrush(Accent); g.FillRectangle(back, rect);
                 using var font = new Font("Microsoft YaHei UI", 11 * Scale, GraphicsUnit.Pixel);
-                TextRenderer.DrawText(g, ResultCopied ? "已复制" : "复制", font, rect, Color.White,
+                TextRenderer.DrawText(g, ResultCopied ? "已复制" : id == "ocrtextcopy" ? "复制文字" : "复制", font, rect, Color.White,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
                 continue;
             }
@@ -480,6 +458,7 @@ internal sealed class AnnotationBar
                 "modebrush" or "modeline" => !RectangleMode,
                 _ => false
             };
+            if (OcrMode && id != "ocr") active = false;
 
             if (active)
             {

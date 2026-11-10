@@ -1,20 +1,19 @@
+using System.Drawing.Drawing2D;
+
 namespace SnipLite;
 
-/// <summary>A compact child of the capture overlay; no separate result window.</summary>
+/// <summary>A single options row below the unchanged annotation toolbar.</summary>
 internal sealed class TranslationPanel : UserControl
 {
     internal static readonly Color Surface = SnipMenuRenderer.Back;
     private static readonly Color Ink = Color.FromArgb(62, 62, 62);
-    private static readonly Color Muted = Color.FromArgb(112, 112, 112);
     private readonly Color _accent;
     private readonly Button _source;
     private readonly Button _target;
     private readonly Button _swap;
-    private readonly Button _original;
-    private readonly Button _translated;
+    private readonly Button _view;
     private readonly Button _copy;
     private readonly Button _retry;
-    private readonly TextBox _body;
     private readonly Label _status;
     private readonly List<ContextMenuStrip> _menus = new();
     private readonly float _scale;
@@ -22,30 +21,24 @@ internal sealed class TranslationPanel : UserControl
     private readonly Font _smallFont;
     private readonly ToolTip _tips = new();
     private string _originalText = "";
-    private string _error = "";
-    private bool _showOriginal;
-    private bool _busy;
 
     public string SourceLanguage { get; private set; }
     public string TargetLanguage { get; private set; }
     public string? DetectedLanguage { get; private set; }
     public string ResultText { get; private set; } = "";
+    public bool ShowOriginal { get; private set; }
     public event Action<bool>? LanguagesChanged;
+    public event Action? ViewChanged;
     public event Action? RetryRequested;
     public event Action<ContextMenuStrip>? MenuOpening;
-
     private int Px(int value) => (int)Math.Round(value * _scale);
 
     public TranslationPanel(float scale, string source, string target, Color? accent = null)
     {
-        _scale = scale;
-        _accent = accent ?? AnnotationBar.DefaultAccent;
-        AutoScaleMode = AutoScaleMode.None;
-        BackColor = Surface;
-        ForeColor = Ink;
-        Cursor = Cursors.Default;
-        DoubleBuffered = true;
-        _contentFont = new Font("Microsoft YaHei UI", 14 * scale, GraphicsUnit.Pixel);
+        _scale = scale; _accent = accent ?? AnnotationBar.DefaultAccent;
+        AutoScaleMode = AutoScaleMode.None; BackColor = Surface; ForeColor = Ink;
+        Cursor = Cursors.Default; DoubleBuffered = true;
+        _contentFont = new Font("Microsoft YaHei UI", 12 * scale, GraphicsUnit.Pixel);
         _smallFont = new Font("Microsoft YaHei UI", 11 * scale, GraphicsUnit.Pixel);
         Font = _contentFont;
         SourceLanguage = TranslationLanguages.Normalize(source, true, "en");
@@ -53,22 +46,17 @@ internal sealed class TranslationPanel : UserControl
         _source = MakeButton("", () => ShowLanguages(true));
         _target = MakeButton("", () => ShowLanguages(false));
         _swap = MakeButton("⇄", SwapLanguages);
-        _tips.SetToolTip(_swap, "交换语言和原文 / 译文");
-        _original = MakeButton("原文", () => { _showOriginal = true; RefreshBody(); });
-        _translated = MakeButton("译文", () => { _showOriginal = false; RefreshBody(); });
-        _copy = MakeButton("复制", CopyText);
-        _retry = MakeButton("重试", () => RetryRequested?.Invoke());
-        _body = new TextBox
-        {
-            Multiline = true, ReadOnly = true, BorderStyle = BorderStyle.None, ScrollBars = ScrollBars.None,
-            BackColor = Surface, ForeColor = Ink, Font = _contentFont, TabStop = true,
-            ShortcutsEnabled = true, Name = "TranslationText", AccessibleName = "翻译结果"
-        };
-        _status = new Label { ForeColor = Muted, Font = _smallFont, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
-        Controls.Add(_body); Controls.Add(_status);
-        Height = Px(232); Width = Px(410);
-        UpdateLanguages();
-        SetBusy("正在识别选区文字…");
+        _tips.SetToolTip(_swap, "交换源语言和目标语言");
+        _view = MakeButton("", ToggleView); _view.AccessibleName = "切换原文 / 译文";
+        _view.Paint += (_, e) => DrawViewIcon(e.Graphics, _view.ClientRectangle, _view.Enabled);
+        _copy = MakeButton("", CopyText); _copy.AccessibleName = "复制识别文字";
+        _copy.Paint += (_, e) => DrawCopyIcon(e.Graphics, _copy.ClientRectangle, _copy.Enabled);
+        _retry = MakeButton("↻", () => RetryRequested?.Invoke()); _retry.AccessibleName = "重新翻译";
+        _tips.SetToolTip(_retry, "重新翻译");
+        _status = new Label { ForeColor = Color.FromArgb(110, 110, 110), Font = _smallFont, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
+        Controls.Add(_status);
+        Width = Px(680); Height = Px(44);
+        UpdateLanguages(); SetBusy("正在识别…");
     }
 
     private Button MakeButton(string text, Action click)
@@ -87,31 +75,42 @@ internal sealed class TranslationPanel : UserControl
 
     protected override void OnLayout(LayoutEventArgs e)
     {
-        base.OnLayout(e);
-        if (_status is null) return;
-        var pad = Px(14);
-        var space = ClientSize.Width - pad * 2;
-        var swapWidth = Px(36);
-        var languageWidth = (space - swapWidth) / 2;
-        _source.SetBounds(pad, Px(9), languageWidth, Px(38));
-        _swap.SetBounds(pad + languageWidth, Px(9), swapWidth, Px(38));
-        _target.SetBounds(pad + languageWidth + swapWidth, Px(9), languageWidth, Px(38));
-        _original.SetBounds(pad, Px(61), Px(52), Px(26));
-        _translated.SetBounds(pad + Px(58), Px(61), Px(52), Px(26));
-        _copy.SetBounds(Width - pad - Px(58), Px(61), Px(58), Px(26));
-        _body.SetBounds(pad + Px(3), Px(100), space - Px(6), Math.Max(Px(30), Height - Px(138)));
-        _status.SetBounds(pad + Px(3), Height - Px(30), space - Px(62), Px(20));
-        _retry.SetBounds(Width - pad - Px(54), Height - Px(33), Px(54), Px(26));
-        UpdateScrollBars();
+        base.OnLayout(e); if (_status is null) return;
+        var x = Px(5); var y = Px(5); var button = Px(34); var gap = Px(2);
+        _source.SetBounds(x, y, Px(142), button); x = _source.Right + gap;
+        _swap.SetBounds(x, y, button, button); x = _swap.Right + gap;
+        _target.SetBounds(x, y, Px(114), button); x = _target.Right + Px(8);
+        _view.SetBounds(x, y, button, button); x = _view.Right + Px(12);
+        _copy.SetBounds(Width - Px(5) - button, y, button, button);
+        _retry.SetBounds(_copy.Left - gap - button, y, button, button);
+        _status.SetBounds(x, y, Math.Max(1, _retry.Left - x - Px(6)), button);
     }
 
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
-        using var line = new Pen(Color.FromArgb(210, 210, 210));
-        using var border = new Pen(_accent);
-        e.Graphics.DrawRectangle(border, 0, 0, Width - 1, Height - 1);
-        e.Graphics.DrawLine(line, Px(14), Px(55), Width - Px(14), Px(55));
+        using var border = new Pen(_accent); e.Graphics.DrawRectangle(border, 0, 0, Width - 1, Height - 1);
+        using var divider = new Pen(Color.FromArgb(200, 200, 200));
+        e.Graphics.DrawLine(divider, _view.Right + Px(5), Px(10), _view.Right + Px(5), Height - Px(10));
+    }
+
+    private void DrawViewIcon(Graphics g, Rectangle rect, bool enabled)
+    {
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        var x = rect.Width / 2f; var y = rect.Height / 2f;
+        using var pen = new Pen(enabled ? ShowOriginal ? _accent : Ink : Color.FromArgb(170, 170, 170), 1.5f * _scale);
+        using var path = new GraphicsPath();
+        path.AddBezier(x - Px(9), y, x - Px(4), y - Px(9), x + Px(4), y - Px(9), x + Px(9), y);
+        path.AddBezier(x + Px(9), y, x + Px(4), y + Px(9), x - Px(4), y + Px(9), x - Px(9), y);
+        g.DrawPath(pen, path); g.DrawEllipse(pen, x - Px(2), y - Px(2), Px(4), Px(4));
+    }
+
+    private void DrawCopyIcon(Graphics g, Rectangle rect, bool enabled)
+    {
+        using var pen = new Pen(enabled ? Ink : Color.FromArgb(170, 170, 170), 1.5f * _scale);
+        var x = rect.Width / 2; var y = rect.Height / 2;
+        g.DrawRectangle(pen, x - Px(7), y - Px(7), Px(10), Px(10));
+        g.DrawRectangle(pen, x - Px(2), y - Px(2), Px(10), Px(10));
     }
 
     internal void SelectLanguage(bool source, string code)
@@ -138,67 +137,63 @@ internal sealed class TranslationPanel : UserControl
 
     internal void ShowLanguages(bool source)
     {
-        // Keep dropdowns alive until the panel is disposed, after ToolStrip's closing filter unwinds.
-        var menu = SnipMenu.Create();
-        menu.Font = _contentFont;
-        menu.MaximumSize = new Size(Px(218), Px(284));
+        var menu = SnipMenu.Create(); menu.Font = _contentFont; menu.MaximumSize = new Size(Px(218), Px(284));
         foreach (var language in TranslationLanguages.All.Where(l => source || l.Code != "auto"))
         {
             var item = new ToolStripMenuItem(language.Name)
             {
-                ForeColor = Ink, AutoSize = false, Size = new Size(Px(198), Px(36)),
+                AutoSize = false, Size = new Size(Px(198), Px(34)),
                 Checked = language.Code == (source ? SourceLanguage : TargetLanguage), Padding = Padding.Empty
             };
-            item.Click += (_, _) => SelectLanguage(source, language.Code);
-            menu.Items.Add(item);
+            item.Click += (_, _) => SelectLanguage(source, language.Code); menu.Items.Add(item);
         }
         _menus.Add(menu); MenuOpening?.Invoke(menu);
-        var owner = source ? _source : _target;
-        menu.Show(owner, new Point(0, owner.Height + Px(5)));
+        var owner = source ? _source : _target; menu.Show(owner, new Point(0, owner.Height + Px(3)));
     }
 
-    public void SetOriginal(string text) { _originalText = text; RefreshBody(); }
+    public void SetOriginal(string text) => _originalText = text;
     public void SetBusy(string status)
     {
-        _busy = true; _error = ""; ResultText = ""; _showOriginal = false;
-        _status.Text = status; _retry.Enabled = false; RefreshBody();
+        ResultText = ""; ShowOriginal = false;
+        _view.Enabled = _copy.Enabled = _retry.Enabled = false;
+        _status.ForeColor = Color.FromArgb(110, 110, 110); SetStatus(status); RefreshView();
     }
+    public void SetProgress(int completed, int total) => SetStatus($"翻译中 {completed}/{total}");
     public void SetResult(TranslationResult result)
     {
-        _busy = false; _error = ""; ResultText = result.Text; DetectedLanguage = result.DetectedLanguage;
-        _status.Text = "Google 在线翻译 · Esc 返回"; _retry.Text = "重译"; _retry.Enabled = true;
-        UpdateLanguages(); RefreshBody();
+        ResultText = result.Text; DetectedLanguage = result.DetectedLanguage;
+        _view.Enabled = _copy.Enabled = _retry.Enabled = true;
+        SetStatus("已翻译"); _tips.SetToolTip(_retry, "重新翻译");
+        UpdateLanguages(); RefreshView();
     }
     public void SetError(string error)
     {
-        _busy = false; _error = error; ResultText = "";
-        _status.Text = "Google 在线翻译 · Esc 返回"; _retry.Text = "重试"; _retry.Enabled = true; RefreshBody();
+        ResultText = ""; _view.Enabled = _copy.Enabled = false; _retry.Enabled = true;
+        _status.ForeColor = Color.FromArgb(178, 48, 42); SetStatus(error);
+        _tips.SetToolTip(_retry, "重试翻译"); RefreshView();
     }
-    private void RefreshBody()
+    private void SetStatus(string status)
     {
-        var text = _showOriginal ? _originalText : _error.Length > 0 ? _error : ResultText;
-        if (_body.Text != text) _body.Text = text.ReplaceLineEndings(Environment.NewLine);
-        _body.ForeColor = !_showOriginal && _error.Length > 0 ? Color.FromArgb(178, 48, 42) : Ink;
-        _copy.Text = "复制";
-        _copy.Enabled = _showOriginal ? _originalText.Length > 0 : !_busy && _error.Length == 0 && ResultText.Length > 0;
-        _original.ForeColor = _showOriginal ? _accent : Muted;
-        _translated.ForeColor = !_showOriginal ? _accent : Muted;
-        UpdateScrollBars();
+        _status.Text = "Google · " + status; _tips.SetToolTip(_status, _status.Text);
     }
-    private void UpdateScrollBars()
+    internal void ToggleView()
     {
-        if (_body is null || _body.Width < 1) return;
-        var height = TextRenderer.MeasureText(_body.Text, _contentFont, new Size(Math.Max(1, _body.Width - Px(20)), int.MaxValue),
-            TextFormatFlags.WordBreak | TextFormatFlags.NoPadding | TextFormatFlags.TextBoxControl).Height;
-        var scroll = height > _body.Height ? ScrollBars.Vertical : ScrollBars.None;
-        if (_body.ScrollBars != scroll) _body.ScrollBars = scroll;
+        if (!_view.Enabled) return;
+        ShowOriginal = !ShowOriginal; SetStatus(ShowOriginal ? "显示原文" : "已翻译");
+        RefreshView(); ViewChanged?.Invoke();
+    }
+    private void RefreshView()
+    {
+        _view.BackColor = ShowOriginal ? SnipMenuRenderer.Hover : Surface;
+        _tips.SetToolTip(_view, ShowOriginal ? "查看译文（当前显示原文）" : "查看原文（当前显示译文）");
+        _tips.SetToolTip(_copy, ShowOriginal ? "复制原文" : "复制译文");
+        _view.Invalidate(); _copy.Invalidate();
     }
     public void CopyText()
     {
-        var text = _body.SelectionLength > 0 ? _body.SelectedText : _showOriginal ? _originalText : _error.Length == 0 ? ResultText : "";
-        if (string.IsNullOrEmpty(text)) return;
-        try { Clipboard.SetText(text); _copy.Text = "已复制"; }
-        catch { _status.Text = "复制失败，请重试"; }
+        var text = ShowOriginal ? _originalText : ResultText; if (string.IsNullOrEmpty(text)) return;
+        try { Clipboard.SetText(text); SetStatus(ShowOriginal ? "原文已复制" : "译文已复制"); }
+        catch { SetStatus("复制失败，请重试"); }
     }
     public void CloseMenus() { foreach (var menu in _menus) if (menu.Visible) menu.Close(); }
 
@@ -206,8 +201,7 @@ internal sealed class TranslationPanel : UserControl
     {
         if (disposing)
         {
-            CloseMenus();
-            var menus = _menus.ToArray(); _menus.Clear();
+            CloseMenus(); var menus = _menus.ToArray(); _menus.Clear();
             var context = SynchronizationContext.Current;
             if (context is not null) context.Post(_ => { foreach (var menu in menus) menu.Dispose(); }, null);
             else foreach (var menu in menus) menu.Dispose();
@@ -215,5 +209,4 @@ internal sealed class TranslationPanel : UserControl
         }
         base.Dispose(disposing);
     }
-
 }

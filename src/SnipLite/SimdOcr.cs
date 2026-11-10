@@ -63,11 +63,14 @@ internal static class SimdOcr
     internal static OcrDocument ToDocument(PaddleOcrResult result, Size original, Size input)
     {
         var characters = new List<RecognizedCharacter>();
+        var lineBounds = new List<RectangleF>();
         var sx = (float)original.Width / input.Width;
         var sy = (float)original.Height / input.Height;
         foreach (var line in result.Lines)
         {
             if (string.IsNullOrEmpty(line.Text)) continue;
+            var detected = line.Box;
+            lineBounds.Add(Bounds(detected.X1, detected.Y1, detected.X2, detected.Y2, detected.X3, detected.Y3, detected.X4, detected.Y4));
             var prefix = characters.Count == 0 ? "" : Environment.NewLine;
             var boxes = line.EstimateCharacterBoxes();
             if (boxes.Length == 0 || string.Concat(boxes.Select(b => b.Text)) != line.Text)
@@ -85,7 +88,7 @@ internal static class SimdOcr
                 prefix = "";
             }
         }
-        return OcrDocument.FromCharacters(characters);
+        return OcrDocument.FromCharacters(characters, lineBounds);
 
         RectangleF Bounds(float x1, float y1, float x2, float y2, float x3, float y3, float x4, float y4)
         {

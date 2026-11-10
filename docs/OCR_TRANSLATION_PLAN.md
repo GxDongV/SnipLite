@@ -33,10 +33,14 @@
 
 ## 截图翻译
 
-工具栏「译」按钮复用 OCR 能力，在下方展示紧凑的语言选择及原文/译文面板。外观沿用项目已有的浅灰、蓝色强调和菜单渲染器。首次默认英语 → 中文简体，之后记住语言选择；支持自动检测及常用语言、交换方向、选取复制、重试和 Esc 返回。切换语言不重复 OCR，当前截图会话最多缓存 12 种原文/语言组合的结果。
+工具栏「译」按钮保持选中，并保留完整的标注工具栏。在下方增加与工具栏选项行等高的一行语言与 Google 状态栏，外观沿用已有浅灰、蓝色强调和菜单渲染器。首次默认英语 → 中文简体，之后记住语言选择；支持自动检测、交换语言、单一眼睛图标切换原文/译文、复制文字、重试和 Esc 返回。切换语言不重复 OCR，当前截图会话最多缓存 80 个文字块/语言组合。
+
+OCR 文本按完整检测行框组织，合并相邻且左边对齐的段落，每次最多两个文字块同时翻译，按原顺序组合结果。翻译期间完整工具栏仍可操作。译文在独立的透明层中，采样原文字区域周边的背景颜色覆盖字迹，再按区域大小自动缩放排版；标注画在译文层上方。复制截图、保存与贴图都包含当前显示的原文/译文层。切回原文或关闭翻译会恢复原始像素，改变选区会取消旧请求并重建覆盖层。
+
+背景填充针对常见纯色界面，不进行图像修复；复杂背景、旋转文字及过长译文仍有显示限制。渲染使用 GDI+ 保留透明层的 alpha，避免 GDI 文字绘制造成字形像素透明、透出底层原文。
 
 当前 `GooglePublicTranslationProvider` 通过 HTTPS 使用 `translate.googleapis.com/translate_a/single?client=gtx`，该公共网页接口也可在 [Translate Shell 上游实现](https://github.com/soimort/translate-shell/blob/develop/include/Translators/GoogleTranslate.awk)中核对。它不需要密钥，可能限流、变更或因网络不可达而失败，不能把可用性当成稳定承诺。它与需要凭据的 [Google Cloud Translation 官方 API](https://cloud.google.com/translate/docs/reference/rest/v2/translate)不同。
 
-只提交用户点击翻译的选区 OCR 文字，不上传图片，也不记录原文、译文或带文字的请求 URL。请求有超时、取消、429 和网络错误提示，Esc 或新请求会取消旧请求并丢弃过期结果。超过 600 字符时按空白边界分段并保留换行；总长度限制 12000 字符，过长时提示缩小选区。本地 OCR 独立可用。
+只提交用户点击翻译的选区 OCR 文字，不上传图片，也不记录原文、译文或带文字的请求 URL。请求有超时、取消、429 和网络错误提示，Esc 或新请求会取消旧请求并丢弃过期结果。单块超过 600 字符时按空白边界分段并保留换行；总长度限制 12000 字符、最多 80 块，过大时提示缩小选区。任一块请求失败会取消剩余任务并显示失败状态。本地 OCR 独立可用。
 
 翻译服务通过 `ITranslationProvider` 隔离，后续可接入 [Microsoft Translator 官方 API](https://learn.microsoft.com/en-us/azure/ai-services/translator/text-translation/reference/v3/translate) 或其他提供商；本轮不增加账号和密钥设置。

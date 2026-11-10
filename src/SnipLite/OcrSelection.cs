@@ -10,16 +10,19 @@ internal sealed record RecognizedCharacter(string Text, RectangleF Bounds, strin
 internal sealed class OcrDocument
 {
     public IReadOnlyList<RecognizedCharacter> Characters { get; }
+    public IReadOnlyList<RectangleF> LineBounds { get; }
     public string Text => GetText(0, Characters.Count - 1);
 
-    private OcrDocument(IReadOnlyList<RecognizedCharacter> characters) => Characters = characters;
+    private OcrDocument(IReadOnlyList<RecognizedCharacter> characters, IReadOnlyList<RectangleF> lineBounds)
+    { Characters = characters; LineBounds = lineBounds; }
 
-    internal static OcrDocument FromCharacters(IEnumerable<RecognizedCharacter> characters)
-        => new(characters.ToArray());
+    internal static OcrDocument FromCharacters(IEnumerable<RecognizedCharacter> characters, IEnumerable<RectangleF>? lineBounds = null)
+        => new(characters.ToArray(), lineBounds?.ToArray() ?? Array.Empty<RectangleF>());
 
     public OcrDocument(IEnumerable<RecognizedWord> words)
     {
         var characters = new List<RecognizedCharacter>();
+        var lineBounds = new Dictionary<int, RectangleF>();
         RecognizedWord? previous = null;
         using var measure = new Bitmap(1, 1);
         using var graphics = Graphics.FromImage(measure);
@@ -30,6 +33,7 @@ internal sealed class OcrDocument
         foreach (var word in words)
         {
             if (string.IsNullOrEmpty(word.Text)) continue;
+            lineBounds[word.Line] = lineBounds.TryGetValue(word.Line, out var line) ? RectangleF.Union(line, word.Bounds) : word.Bounds;
             var prefix = previous is null ? "" : previous.Line != word.Line
                 ? Environment.NewLine : IsChinese(previous.Text[^1]) && IsChinese(word.Text[0]) ? "" : " ";
             var elements = new List<string>();
@@ -47,6 +51,7 @@ internal sealed class OcrDocument
             previous = word;
         }
         Characters = characters;
+        LineBounds = lineBounds.Values.ToArray();
     }
 
     private static bool IsChinese(char value) => value is >= '\u4e00' and <= '\u9fff';

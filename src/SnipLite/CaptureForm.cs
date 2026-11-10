@@ -193,6 +193,7 @@ internal sealed partial class CaptureForm : Form
     {
         _recognitionVersion++;
         CancelTranslation();
+        ClearTranslationImages();
         _targetTimer.Stop(); _targetTimer.Dispose();
         _crosshair?.Dispose(); _crosshair = null;
         _keyboardHook?.Dispose();
@@ -253,6 +254,7 @@ internal sealed partial class CaptureForm : Form
             var state = g.Save();
             g.SetClip(_selection);
 
+            DrawTranslationOverlay(g, Point.Empty);
             if (_shapes.Count > 0 || _current is not null)
                 g.DrawImageUnscaled(GetAnnotationLayer(Crop), Crop.Location);
             DrawTextPreview(g);
@@ -271,7 +273,7 @@ internal sealed partial class CaptureForm : Form
 
             g.Restore(state);
 
-            DrawSelection(g, _settings.CaptureAnchors && _hasSelection && !_ocrMode && !_recognitionBusy && !TranslationVisible);
+            DrawSelection(g, _settings.CaptureAnchors && _hasSelection && !_ocrMode && !_recognitionBusy);
 
             if (_annotate && _hasSelection)
             {
@@ -444,29 +446,23 @@ internal sealed partial class CaptureForm : Form
             Cancel();
             return;
         }
-        if (e.Button == MouseButtons.Middle && _hasSelection && !TranslationVisible) { ExecuteAction(_settings.MiddleClickAction, _settings.MiddleClickExit); return; }
+        if (e.Button == MouseButtons.Middle && _hasSelection) { ExecuteAction(_settings.MiddleClickAction, _settings.MiddleClickExit); return; }
         if (e.Button != MouseButtons.Left) return;
 
         var p = Clamp(e.Location);
         _cursor = p;
 
-        if (TranslationVisible)
-        {
-            var command = _bar.HitTest(p);
-            if (command is "translate" or "close") CloseTranslation();
-            else if (command == "copy") _translationPanel!.CopyText();
-            return;
-        }
-
         if (_ocrMode || _recognitionBusy)
         {
             var command = _bar.HitTest(p);
-            if (command is "ocr" or "close") { ExitRecognition(); return; }
+            if (command == "ocr") { ExitRecognition(); return; }
+            if (command == "ocrtextcopy") { CopyOcrText(allIfUnselected: true); return; }
+            if (command is not null) { ExitRecognition(); Command(command); return; }
             if (_recognitionBusy) return;
-            if (command == "copy") { CopyOcrText(); return; }
             if (_bar.Bounds.Contains(p)) return;
             _ocrAnchor = _ocrDocument?.HitTest(new PointF(p.X - _ocrCrop.X, p.Y - _ocrCrop.Y), tolerance: 8 * Ui) ?? -1;
             _ocrEnd = _ocrAnchor;
+            _bar.ResultCopied = false;
             _selectingText = _ocrAnchor >= 0;
             Capture = _selectingText;
             Invalidate();
@@ -632,7 +628,6 @@ internal sealed partial class CaptureForm : Form
             return;
         }
 
-        if (TranslationVisible) { UpdateCursor(); return; }
         if (_ocrMode || _recognitionBusy)
         {
             if (_selectingText && _ocrDocument is not null)
@@ -713,7 +708,6 @@ internal sealed partial class CaptureForm : Form
             InvalidateAnnotations();
             return;
         }
-        if (TranslationVisible) { Capture = false; return; }
         if (_ocrMode || _recognitionBusy)
         {
             _selectingText = false;
@@ -753,6 +747,7 @@ internal sealed partial class CaptureForm : Form
 
             Invalidate();
             if (_qrCaptureOnly && _hasSelection) _ = RecognizeSelectionAsync(ocr: false);
+            else RefreshTranslationSelection();
             return;
         }
 
@@ -761,12 +756,13 @@ internal sealed partial class CaptureForm : Form
             _dragMode = 0;
             Invalidate();
             if (_qrCaptureOnly && _hasSelection) _ = RecognizeSelectionAsync(ocr: false);
+            else RefreshTranslationSelection();
         }
     }
 
     protected override void OnMouseDoubleClick(MouseEventArgs e)
     {
-        if (_ocrMode || _recognitionBusy || TranslationVisible) return;
+        if (_ocrMode || _recognitionBusy) return;
         if (_bar.Tool == ToolKind.Text || _activeText is not null) return;
         if (!_hasSelection || _ime != null) return;
 
@@ -785,12 +781,7 @@ internal sealed partial class CaptureForm : Form
 
     protected override bool ProcessCmdKey(ref Message m, Keys keyData)
     {
-        if (TranslationVisible)
-        {
-            if (keyData == Keys.Escape) { CloseTranslation(); return true; }
-            if (keyData == (Keys.Control | Keys.C)) { _translationPanel!.CopyText(); return true; }
-            return base.ProcessCmdKey(ref m, keyData);
-        }
+        if (TranslationVisible && _ime is null && keyData == Keys.Escape) { CloseTranslation(); return true; }
         if (_qrText is not null)
         {
             if (keyData == (Keys.Control | Keys.C)) { CopyInlineQr(); return true; }
@@ -804,6 +795,7 @@ internal sealed partial class CaptureForm : Form
             {
                 _ocrAnchor = 0;
                 _ocrEnd = _ocrDocument.Characters.Count - 1;
+                _bar.ResultCopied = false;
                 Invalidate();
             }
             // Recognition must never fall through to screenshot copy / confirm
@@ -1002,9 +994,9 @@ internal sealed partial class CaptureForm : Form
             case "eraser": SetTool(ToolKind.Eraser); return;
             case "text": SetTool(ToolKind.Text); return;
             case "mosaic": SetTool(ToolKind.Mosaic); return;
-            case "ocr": _ = RecognizeSelectionAsync(ocr: true); return;
-            case "qr": _ = RecognizeSelectionAsync(ocr: false); return;
-            case "translate": _ = TranslateSelectionAsync(); return;
+            case "ocr": CloseTranslation(); _ = RecognizeSelectionAsync(ocr: true); return;
+            case "qr": CloseTranslation(); _ = RecognizeSelectionAsync(ocr: false); return;
+            case "translate": if (TranslationVisible) CloseTranslation(); else _ = TranslateSelectionAsync(); return;
             case "resultcopy": CopyInlineQr(); return;
 
             case "width": ShowWidthPicker(); return;
@@ -1192,7 +1184,7 @@ internal sealed partial class CaptureForm : Form
     }
     protected override void OnMouseWheel(MouseEventArgs e)
     {
-        if (_settings.DisableCaptureWheel || _ocrMode || _recognitionBusy || TranslationVisible) return;
+        if (_settings.DisableCaptureWheel || _ocrMode || _recognitionBusy) return;
         if (MagnifierVisible) { _magnifierZoom = Math.Clamp(_magnifierZoom + Math.Sign(e.Delta), 2, 16); Invalidate(_lastMagnifierBounds); }
         else if (_bar.Tool == ToolKind.Text && _hasSelection) { _bar.FontSize = Math.Clamp(_bar.FontSize + Math.Sign(e.Delta), 4, 200); RestyleText(); Invalidate(); }
         base.OnMouseWheel(e);
@@ -1325,6 +1317,8 @@ internal sealed partial class CaptureForm : Form
         _ocrAnchor = _ocrEnd = -1;
         _showMagnifier = false;
         _bar.OcrMode = ocr;
+        _bar.OcrCopyVisible = false;
+        _bar.ResultCopied = false;
         _bar.Status = ocr ? "正在识别文字…  Esc 返回标注" : "正在识别二维码 / 条码…  Esc 取消";
         UpdateCursor();
         Invalidate();
@@ -1336,9 +1330,10 @@ internal sealed partial class CaptureForm : Form
                 if (IsDisposed || version != _recognitionVersion) return;
                 _recognitionBusy = false;
                 _ocrDocument = document;
+                _bar.OcrCopyVisible = document.Characters.Count > 0;
                 _bar.Status = document.Characters.Count == 0
                     ? "未识别到文字，按 Esc 返回后调整选区"
-                    : "拖动选字 · Ctrl+A 全选 · Ctrl+C 复制 · Esc 返回";
+                    : "拖动选字 · Ctrl+A 全选 · Ctrl+C 复制 · Esc 返回编辑";
             }
             else
             {
@@ -1372,6 +1367,8 @@ internal sealed partial class CaptureForm : Form
         _ocrDocument = null;
         _ocrAnchor = _ocrEnd = -1;
         _bar.OcrMode = false;
+        _bar.OcrCopyVisible = false;
+        _bar.ResultCopied = false;
         _bar.Status = "";
         UpdateCursor();
         Invalidate();
@@ -1399,9 +1396,10 @@ internal sealed partial class CaptureForm : Form
         Invalidate();
     }
 
-    private void CopyOcrText()
+    private void CopyOcrText(bool allIfUnselected = false)
     {
-        var text = _ocrDocument?.GetText(_ocrAnchor, _ocrEnd) ?? "";
+        var text = allIfUnselected && (_ocrAnchor < 0 || _ocrEnd < 0)
+            ? _ocrDocument?.Text ?? "" : _ocrDocument?.GetText(_ocrAnchor, _ocrEnd) ?? "";
         if (text.Length == 0)
         {
             _bar.Status = "请先拖动选择文字，或按 Ctrl+A 全选";
@@ -1411,6 +1409,7 @@ internal sealed partial class CaptureForm : Form
             try
             {
                 Clipboard.SetText(text);
+                _bar.ResultCopied = true;
                 _bar.Status = "已复制选中文字，可继续划词 · Esc 返回标注";
             }
             catch { _bar.Status = "复制失败，请重试"; }
@@ -1437,8 +1436,7 @@ internal sealed partial class CaptureForm : Form
     private void UpdateHint()
     {
         var hint = _barVisible ? AnnotationBar.Hint(_bar.HitTest(_cursor), _ocrMode) : "";
-        if (TranslationVisible)
-            hint = _bar.HitTest(_cursor) switch { "copy" => "复制译文 / 选中文字（Ctrl+C）", "close" or "translate" => "收起翻译（Esc）", _ => "" };
+        if (TranslationVisible && _bar.HitTest(_cursor) == "translate") hint = "关闭截图翻译（Esc）";
         if (_qrText is not null && _bar.MessageBounds.Contains(_cursor) && _bar.HitTest(_cursor) != "resultcopy") hint = _qrText;
         if (_hoverHint == hint) return;
         _hoverHint = hint;
@@ -1456,6 +1454,7 @@ internal sealed partial class CaptureForm : Form
         g.InterpolationMode = InterpolationMode.NearestNeighbor;
         g.PixelOffsetMode = PixelOffsetMode.Half;
         g.DrawImage(_screenshot, new Rectangle(0, 0, crop.Width, crop.Height), crop, GraphicsUnit.Pixel);
+        DrawTranslationOverlay(g, new Point(-crop.X, -crop.Y));
 
         if (_shapes.Count > 0) g.DrawImageUnscaled(GetAnnotationLayer(crop), 0, 0);
 
@@ -1977,8 +1976,7 @@ internal sealed partial class CaptureForm : Form
         var fullCrosshair = _crosshair is not null && !_hasSelection && !_dragging && !_finished && ContainsFocus;
         // Keep the familiar native small cross as a visible centre marker.
         if (fullCrosshair) _crosshair!.Move(_cursor); else _crosshair?.Hide();
-        if (_recognitionBusy) { Cursor = Cursors.AppStarting; return; }
-        if (TranslationVisible) { Cursor = _bar.Bounds.Contains(_cursor) ? Cursors.Hand : Cursors.Default; return; }
+        if (_recognitionBusy) { Cursor = _bar.HitTest(_cursor) is not null ? Cursors.Hand : Cursors.AppStarting; return; }
         if (_ocrMode)
         {
             Cursor = _bar.Bounds.Contains(_cursor) ? Cursors.Hand
