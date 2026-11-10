@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SnipLite/SnipLite.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SnipLite.SelfTest/SnipLite.SelfTest.csproj" />
+  </Folder>
+</Solution>

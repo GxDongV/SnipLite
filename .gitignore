@@ -1,0 +1,28 @@
+# Local references and development notes
+/.local/
+
+# Build and publish output
+**/bin/
+**/obj/
+/artifacts/
+/publish/
+/out/
+**/TestResults/
+
+# IDE and operating-system files
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+selftest-progress.txt
