@@ -65,7 +65,7 @@ internal sealed class OcrDocument
         return result.ToString();
     }
 
-    public int HitTest(PointF point, bool nearest = false)
+    public int HitTest(PointF point, bool nearest = false, float tolerance = 0)
     {
         var index = -1;
         var distance = float.MaxValue;
@@ -73,12 +73,11 @@ internal sealed class OcrDocument
         {
             var bounds = Characters[i].Bounds;
             if (bounds.Contains(point)) return i;
-            if (!nearest) continue;
             var dx = Math.Max(bounds.Left - point.X, Math.Max(0, point.X - bounds.Right));
             var dy = Math.Max(bounds.Top - point.Y, Math.Max(0, point.Y - bounds.Bottom));
             var candidate = dx * dx + dy * dy;
             if (candidate < distance) { distance = candidate; index = i; }
         }
-        return index;
+        return nearest || distance <= tolerance * tolerance ? index : -1;
     }
 }

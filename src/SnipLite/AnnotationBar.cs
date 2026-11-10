@@ -62,6 +62,9 @@ internal sealed class AnnotationBar
     private Rectangle _message;
 
     public bool OcrMode { get; set; }
+    public bool TranslationMode { get; set; }
+    public int AttachedPanelHeight { get; set; }
+    private bool RecognitionMode => OcrMode || TranslationMode;
     public bool CanUndo { get; set; }
     public bool CanRedo { get; set; }
     public string Status { get; set; } = "";
@@ -138,7 +141,7 @@ internal sealed class AnnotationBar
         var rows = (Palette.Length + Columns - 1) / Columns;
         var gridHeight = rows * step;
 
-        var showOptions = !OcrMode && Tool != ToolKind.None;
+        var showOptions = !RecognitionMode && Tool != ToolKind.None;
 
         // ---------------------------------------------------------- row 1
         var x = pad;
@@ -153,7 +156,7 @@ internal sealed class AnnotationBar
             x += button + gap;
         }
 
-        if (!OcrMode)
+        if (!RecognitionMode)
         {
             Cell("rect");
             Cell("ellipse");
@@ -172,7 +175,7 @@ internal sealed class AnnotationBar
             x += group;
         }
 
-        if (!OcrMode)
+        if (!RecognitionMode)
         {
             Divider();
             Cell("undo");
@@ -180,12 +183,12 @@ internal sealed class AnnotationBar
             Divider();
         }
 
-        Cell("ocr");
-        if (!OcrMode) Cell("qr");
+        Cell(TranslationMode ? "translate" : "ocr");
+        if (!RecognitionMode) { Cell("translate"); Cell("qr"); }
         Divider();
 
         Cell("close");
-        if (!OcrMode)
+        if (!RecognitionMode)
         {
             Cell("pin");
             Cell("save");
@@ -193,7 +196,7 @@ internal sealed class AnnotationBar
         Cell("copy");
 
         var mainWidth = x - gap + pad;
-        if (OcrMode)
+        if (RecognitionMode)
         {
             mainWidth = Math.Max(mainWidth, Px(410));
             for (var i = 0; i < _items.Count; i++)
@@ -300,15 +303,16 @@ internal sealed class AnnotationBar
 
         var left = selection.Left + (selection.Width - totalWidth) / 2;
         var topPos = selection.Bottom + (int)Math.Round(10 * Scale);
+        var placementHeight = totalHeight + (AttachedPanelHeight > 0 ? Px(4) + AttachedPanelHeight : 0);
 
-        if (topPos + totalHeight > screen.Height - 2)
-            topPos = selection.Top - totalHeight - (int)Math.Round(10 * Scale);
+        if (topPos + placementHeight > screen.Height - 2)
+            topPos = selection.Top - placementHeight - (int)Math.Round(10 * Scale);
 
         if (topPos < 2)
-            topPos = Math.Min(selection.Bottom - totalHeight - 10, screen.Height - totalHeight - 2);
+            topPos = Math.Min(selection.Bottom - placementHeight - 10, screen.Height - placementHeight - 2);
 
         left = Math.Clamp(left, 2, Math.Max(2, screen.Width - totalWidth - 2));
-        topPos = Math.Clamp(topPos, 2, Math.Max(2, screen.Height - totalHeight - 2));
+        topPos = Math.Clamp(topPos, 2, Math.Max(2, screen.Height - placementHeight - 2));
 
         Bounds = new Rectangle(left, topPos, totalWidth, totalHeight);
 
@@ -357,6 +361,7 @@ internal sealed class AnnotationBar
     {
         "ocr" => ocrMode ? "退出文字选择（Esc）" : "识别文字（OCR）",
         "qr" => "识别二维码 / 条码",
+        "translate" => "截图翻译（默认英语 → 中文）",
         "copy" => ocrMode ? "复制选中文字（Ctrl+C）" : "复制截图（Ctrl+C）",
         "close" => ocrMode ? "退出文字选择（Esc）" : "取消截图（Esc）",
         "pin" => "贴图（Ctrl+T）", "save" => "另存为（Ctrl+S）",
@@ -391,11 +396,11 @@ internal sealed class AnnotationBar
             TextRenderer.DrawText(g, Status.Replace("\r", " ").Replace("\n", " "), font, text, IconColor,
                 TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
         }
-        if (OcrMode)
+        if (RecognitionMode)
         {
             using var font = new Font("Microsoft YaHei UI", 12 * Scale, GraphicsUnit.Pixel);
             var label = new Rectangle(_main.Left + Px(52), _main.Top, _main.Width - Px(140), _main.Height);
-            TextRenderer.DrawText(g, "文字识别 · 划词选择", font, label, IconColor, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            TextRenderer.DrawText(g, TranslationMode ? "截图翻译 · Esc 返回" : "文字识别 · 划词选择", font, label, IconColor, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
         }
 
         foreach (var (rect, id) in _items)
@@ -468,6 +473,7 @@ internal sealed class AnnotationBar
                 "text" => Tool == ToolKind.Text,
                 "mosaic" => Tool == ToolKind.Mosaic,
                 "ocr" => OcrMode,
+                "translate" => TranslationMode,
                 "bold" => Bold,
                 "italic" => Italic,
                 "moderect" => RectangleMode,
@@ -685,6 +691,11 @@ internal sealed class AnnotationBar
             case "qr":
                 using (var font = new Font("Segoe UI", (id == "ocr" ? 10f : 12f) * s, FontStyle.Bold, GraphicsUnit.Pixel))
                     TextRenderer.DrawText(g, id.ToUpperInvariant(), font, rect, color,
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                break;
+            case "translate":
+                using (var font = new Font("Microsoft YaHei UI", 14f * s, FontStyle.Bold, GraphicsUnit.Pixel))
+                    TextRenderer.DrawText(g, "译", font, rect, color,
                         TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
                 break;
 

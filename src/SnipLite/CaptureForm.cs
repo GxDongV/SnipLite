@@ -28,7 +28,7 @@ internal sealed class CaptureResult
 /// then copy / save / pin. All maths are in physical pixels so mixed-DPI
 /// setups behave the same everywhere.
 /// </summary>
-internal sealed class CaptureForm : Form
+internal sealed partial class CaptureForm : Form
 {
     private const int MagnifierSize = 168;
 
@@ -192,6 +192,7 @@ internal sealed class CaptureForm : Form
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         _recognitionVersion++;
+        CancelTranslation();
         _targetTimer.Stop(); _targetTimer.Dispose();
         _crosshair?.Dispose(); _crosshair = null;
         _keyboardHook?.Dispose();
@@ -270,13 +271,15 @@ internal sealed class CaptureForm : Form
 
             g.Restore(state);
 
-            DrawSelection(g, _settings.CaptureAnchors && _hasSelection && !_ocrMode && !_recognitionBusy);
+            DrawSelection(g, _settings.CaptureAnchors && _hasSelection && !_ocrMode && !_recognitionBusy && !TranslationVisible);
 
             if (_annotate && _hasSelection)
             {
                 _bar.CanUndo = _undo.Count > 0;
                 _bar.CanRedo = _redo.Count > 0;
+                _bar.AttachedPanelHeight = TranslationVisible ? _translationPanel!.Height : 0;
                 _bar.Layout(_selection, _virtual.Size);
+                LayoutTranslationPanel();
                 _barVisible = true;
                 _bar.Render(g);
             }
@@ -441,11 +444,19 @@ internal sealed class CaptureForm : Form
             Cancel();
             return;
         }
-        if (e.Button == MouseButtons.Middle && _hasSelection) { ExecuteAction(_settings.MiddleClickAction, _settings.MiddleClickExit); return; }
+        if (e.Button == MouseButtons.Middle && _hasSelection && !TranslationVisible) { ExecuteAction(_settings.MiddleClickAction, _settings.MiddleClickExit); return; }
         if (e.Button != MouseButtons.Left) return;
 
         var p = Clamp(e.Location);
         _cursor = p;
+
+        if (TranslationVisible)
+        {
+            var command = _bar.HitTest(p);
+            if (command is "translate" or "close") CloseTranslation();
+            else if (command == "copy") _translationPanel!.CopyText();
+            return;
+        }
 
         if (_ocrMode || _recognitionBusy)
         {
@@ -454,7 +465,7 @@ internal sealed class CaptureForm : Form
             if (_recognitionBusy) return;
             if (command == "copy") { CopyOcrText(); return; }
             if (_bar.Bounds.Contains(p)) return;
-            _ocrAnchor = _ocrDocument?.HitTest(new PointF(p.X - _ocrCrop.X, p.Y - _ocrCrop.Y)) ?? -1;
+            _ocrAnchor = _ocrDocument?.HitTest(new PointF(p.X - _ocrCrop.X, p.Y - _ocrCrop.Y), tolerance: 8 * Ui) ?? -1;
             _ocrEnd = _ocrAnchor;
             _selectingText = _ocrAnchor >= 0;
             Capture = _selectingText;
@@ -621,6 +632,7 @@ internal sealed class CaptureForm : Form
             return;
         }
 
+        if (TranslationVisible) { UpdateCursor(); return; }
         if (_ocrMode || _recognitionBusy)
         {
             if (_selectingText && _ocrDocument is not null)
@@ -701,6 +713,7 @@ internal sealed class CaptureForm : Form
             InvalidateAnnotations();
             return;
         }
+        if (TranslationVisible) { Capture = false; return; }
         if (_ocrMode || _recognitionBusy)
         {
             _selectingText = false;
@@ -753,7 +766,7 @@ internal sealed class CaptureForm : Form
 
     protected override void OnMouseDoubleClick(MouseEventArgs e)
     {
-        if (_ocrMode || _recognitionBusy) return;
+        if (_ocrMode || _recognitionBusy || TranslationVisible) return;
         if (_bar.Tool == ToolKind.Text || _activeText is not null) return;
         if (!_hasSelection || _ime != null) return;
 
@@ -772,6 +785,12 @@ internal sealed class CaptureForm : Form
 
     protected override bool ProcessCmdKey(ref Message m, Keys keyData)
     {
+        if (TranslationVisible)
+        {
+            if (keyData == Keys.Escape) { CloseTranslation(); return true; }
+            if (keyData == (Keys.Control | Keys.C)) { _translationPanel!.CopyText(); return true; }
+            return base.ProcessCmdKey(ref m, keyData);
+        }
         if (_qrText is not null)
         {
             if (keyData == (Keys.Control | Keys.C)) { CopyInlineQr(); return true; }
@@ -919,7 +938,7 @@ internal sealed class CaptureForm : Form
             Invalidate();
             return;
         }
-        if (e.KeyCode == Keys.Menu)
+        if (e.KeyCode == Keys.Menu && !TranslationVisible)
         {
             _showMagnifier = true;
             Invalidate();
@@ -985,6 +1004,7 @@ internal sealed class CaptureForm : Form
             case "mosaic": SetTool(ToolKind.Mosaic); return;
             case "ocr": _ = RecognizeSelectionAsync(ocr: true); return;
             case "qr": _ = RecognizeSelectionAsync(ocr: false); return;
+            case "translate": _ = TranslateSelectionAsync(); return;
             case "resultcopy": CopyInlineQr(); return;
 
             case "width": ShowWidthPicker(); return;
@@ -1172,7 +1192,7 @@ internal sealed class CaptureForm : Form
     }
     protected override void OnMouseWheel(MouseEventArgs e)
     {
-        if (_settings.DisableCaptureWheel || _ocrMode || _recognitionBusy) return;
+        if (_settings.DisableCaptureWheel || _ocrMode || _recognitionBusy || TranslationVisible) return;
         if (MagnifierVisible) { _magnifierZoom = Math.Clamp(_magnifierZoom + Math.Sign(e.Delta), 2, 16); Invalidate(_lastMagnifierBounds); }
         else if (_bar.Tool == ToolKind.Text && _hasSelection) { _bar.FontSize = Math.Clamp(_bar.FontSize + Math.Sign(e.Delta), 4, 200); RestyleText(); Invalidate(); }
         base.OnMouseWheel(e);
@@ -1417,6 +1437,8 @@ internal sealed class CaptureForm : Form
     private void UpdateHint()
     {
         var hint = _barVisible ? AnnotationBar.Hint(_bar.HitTest(_cursor), _ocrMode) : "";
+        if (TranslationVisible)
+            hint = _bar.HitTest(_cursor) switch { "copy" => "复制译文 / 选中文字（Ctrl+C）", "close" or "translate" => "收起翻译（Esc）", _ => "" };
         if (_qrText is not null && _bar.MessageBounds.Contains(_cursor) && _bar.HitTest(_cursor) != "resultcopy") hint = _qrText;
         if (_hoverHint == hint) return;
         _hoverHint = hint;
@@ -1956,10 +1978,11 @@ internal sealed class CaptureForm : Form
         // Keep the familiar native small cross as a visible centre marker.
         if (fullCrosshair) _crosshair!.Move(_cursor); else _crosshair?.Hide();
         if (_recognitionBusy) { Cursor = Cursors.AppStarting; return; }
+        if (TranslationVisible) { Cursor = _bar.Bounds.Contains(_cursor) ? Cursors.Hand : Cursors.Default; return; }
         if (_ocrMode)
         {
             Cursor = _bar.Bounds.Contains(_cursor) ? Cursors.Hand
-                : _ocrDocument?.HitTest(new PointF(_cursor.X - _ocrCrop.X, _cursor.Y - _ocrCrop.Y)) >= 0
+                : _ocrDocument?.HitTest(new PointF(_cursor.X - _ocrCrop.X, _cursor.Y - _ocrCrop.Y), tolerance: 8 * Ui) >= 0
                     ? Cursors.IBeam : Cursors.Default;
             return;
         }

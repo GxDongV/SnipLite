@@ -9,6 +9,8 @@ internal sealed partial class AppSettings
 
     public string OcrLanguage { get; set; } = "zh-Hans";
     public OcrEngineKind OcrEngine { get; set; } = OcrEngineKind.SimdPaddle;
+    public string TranslationSourceLanguage { get; set; } = "en";
+    public string TranslationTargetLanguage { get; set; } = "zh-CN";
 
     /// <summary>Alpha of the dimming mask over the frozen desktop (0-200).</summary>
     public int MaskOpacity { get; set; } = 110;

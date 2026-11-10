@@ -1,6 +1,6 @@
 # OCR 接入与后续截图翻译
 
-2026-11-11：以日常截图识别、划词和复制够用为目标。当前接入本地轻量模型，暂不加入分块识别、多模型投票、复杂文档分析或离线翻译模型。
+2026-11-11：以日常截图识别、划词和复制够用为目标。已接入本地轻量模型和截图翻译，暂不加入分块识别、多模型投票、复杂文档分析或离线翻译模型。
 
 ## 当前实现
 
@@ -31,10 +31,12 @@
 
 同批 Windows OCR 在四张紧裁切公开图片上返回空文本；本地浅色/深色样例可识别，但将 `Ctrl+C`、`复制` 和版本号标点识别错。这些是少量便利样例，不能换算成通用准确率或推广为所有场景的引擎排名。另通过现有 123 项桌面回归，覆盖划词逻辑、空白图、大图坐标、扫码及原有编辑交互。
 
-## 后续翻译
+## 截图翻译
 
-下一步单独实现工具栏「翻译」按钮：复用 OCR 原文，展示紧凑的原文/译文和复制按钮，Esc 返回编辑；切换目标语言时不重复 OCR。
+工具栏「译」按钮复用 OCR 能力，在下方展示紧凑的语言选择及原文/译文面板。外观沿用项目已有的浅灰、蓝色强调和菜单渲染器。首次默认英语 → 中文简体，之后记住语言选择；支持自动检测及常用语言、交换方向、选取复制、重试和 Esc 返回。切换语言不重复 OCR，当前截图会话最多缓存 12 种原文/语言组合的结果。
 
-优先按用户选择接入 Google 或微软。实现时先确认具体接口：官方 [Google Cloud Translation](https://cloud.google.com/translate/docs/reference/rest) 或 [Microsoft Translator](https://learn.microsoft.com/en-us/azure/ai-services/translator/text-translation/reference/v3/translate)，与网站内部调用的匿名接口应作为不同适配器处理，不能把网页接口的可用性当成稳定承诺。
+当前 `GooglePublicTranslationProvider` 通过 HTTPS 使用 `translate.googleapis.com/translate_a/single?client=gtx`，该公共网页接口也可在 [Translate Shell 上游实现](https://github.com/soimort/translate-shell/blob/develop/include/Translators/GoogleTranslate.awk)中核对。它不需要密钥，可能限流、变更或因网络不可达而失败，不能把可用性当成稳定承诺。它与需要凭据的 [Google Cloud Translation 官方 API](https://cloud.google.com/translate/docs/reference/rest/v2/translate)不同。
 
-本轮没有加入翻译请求、密钥配置和翻译 UI。未来在线翻译仅提交识别后的文字，并提供失败提示、超时和取消；本地 OCR 独立可用。
+只提交用户点击翻译的选区 OCR 文字，不上传图片，也不记录原文、译文或带文字的请求 URL。请求有超时、取消、429 和网络错误提示，Esc 或新请求会取消旧请求并丢弃过期结果。超过 600 字符时按空白边界分段并保留换行；总长度限制 12000 字符，过长时提示缩小选区。本地 OCR 独立可用。
+
+翻译服务通过 `ITranslationProvider` 隔离，后续可接入 [Microsoft Translator 官方 API](https://learn.microsoft.com/en-us/azure/ai-services/translator/text-translation/reference/v3/translate) 或其他提供商；本轮不增加账号和密钥设置。
