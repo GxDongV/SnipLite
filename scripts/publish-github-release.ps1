@@ -24,11 +24,11 @@ foreach ($line in $credentialLines) { $parts = $line -split '=', 2; if ($parts.C
 if (-not $credential['password']) { throw 'GitHub credentials are unavailable.' }
 $headers = @{ Authorization = 'Bearer ' + $credential['password']; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28'; 'User-Agent' = 'SnipLite-Release' }
 $api = "https://api.github.com/repos/$repository"
-$releases = @(Invoke-RestMethod -Uri "$api/releases" -Headers $headers)
-$matches = @($releases | Where-Object tag_name -eq $tag)
-if ($matches.Count -gt 1) { throw 'Multiple matching releases found.' }
-if ($matches.Count -eq 1) {
-    $release = $matches[0]
+$releases = Invoke-RestMethod -Uri "$api/releases" -Headers $headers
+$matchingReleases = @($releases | Where-Object { $_.tag_name -eq $tag })
+if ($matchingReleases.Count -gt 1) { throw 'Multiple matching releases found.' }
+if ($matchingReleases.Count -eq 1) {
+    $release = $matchingReleases[0]
     if (-not $release.draft) { throw 'This release is already public; refusing to overwrite it.' }
 } else {
     $body = @{ tag_name = $tag; target_commitish = $head; name = "SnipLite $tag"; body = $notes; draft = $true; prerelease = $false } | ConvertTo-Json
