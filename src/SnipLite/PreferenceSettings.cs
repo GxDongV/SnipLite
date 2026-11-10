@@ -118,6 +118,7 @@ internal sealed partial class AppSettings
     }
     private void NormalizePreferences()
     {
+        if (!Enum.IsDefined(OcrEngine)) OcrEngine = OcrEngineKind.SimdPaddle;
         InterfaceFontSize = Math.Clamp(InterfaceFontSize, 7, 24);
         TextImageFontSize = Math.Clamp(TextImageFontSize, 6, 100);
         TextImageMargin = Math.Clamp(TextImageMargin, 0, 200);

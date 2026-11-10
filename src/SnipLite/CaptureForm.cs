@@ -1312,7 +1312,7 @@ internal sealed class CaptureForm : Form
         {
             if (ocr)
             {
-                var document = await Task.Run(() => Services.RecognizeTextAsync(image, _settings.OcrLanguage));
+                var document = await Task.Run(() => Services.RecognizeTextAsync(image, _settings.OcrLanguage, _settings.OcrEngine));
                 if (IsDisposed || version != _recognitionVersion) return;
                 _recognitionBusy = false;
                 _ocrDocument = document;

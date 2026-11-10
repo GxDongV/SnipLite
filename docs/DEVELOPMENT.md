@@ -2,7 +2,7 @@
 
 ## 环境
 
-使用 Windows、.NET 10 SDK 和交互式桌面。UI 使用 WinForms，自绘部分采用 GDI+；窗口与控件检测使用 Win32、MSAA 和 UI Automation；OCR 通过 Windows.Media.Ocr，扫码通过 ZXing.Net。
+使用 Windows、.NET 10 SDK 和交互式桌面。UI 使用 WinForms，自绘部分采用 GDI+；窗口与控件检测使用 Win32、MSAA 和 UI Automation；OCR 默认通过 SimdPaddleOCR + PP-OCRv6 Small，Windows.Media.Ocr 备用，扫码通过 ZXing.Net。
 
 版本统一在 `src/SnipLite/SnipLite.csproj` 的 `Version` 中维护，正式程序从程序集元数据读取版本。
 
@@ -21,7 +21,7 @@ dotnet run --project src/SnipLite/SnipLite.csproj -c Release --no-build
 dotnet run --project tests/SnipLite.SelfTest -c Release -- --selftest
 ```
 
-这是独立的桌面诊断程序，并非 `dotnet test` 测试项目。它会短暂显示测试窗口、读取当前屏幕，并验证截图、OCR / 扫码、标注、文字再编辑、原生控件及遮罩下的自动框选等行为。需要可用的交互式桌面和相应 OCR 语言包；不适合直接在无桌面的 CI 环境中运行。
+这是独立的桌面诊断程序，并非 `dotnet test` 测试项目。它会短暂显示测试窗口、读取当前屏幕，并验证截图、OCR / 扫码、标注、文字再编辑、原生控件及遮罩下的自动框选等行为。需要可用的交互式桌面；检查 Windows OCR 时另需系统语言包，不适合直接在无桌面的 CI 环境中运行。
 
 输出默认放在 `%TEMP%\SnipLite.SelfTest\`。通过 `SNIPLITE_TEST_OUTPUT` 可指定其他目录。输出包含测试报告和可能带有当前桌面内容的图片，不应提交到仓库。
 
@@ -37,6 +37,8 @@ dotnet run --project tests/SnipLite.SelfTest -c Release -- --text-test
 
 自动检查覆盖特定场景，不能代替多屏、混合 DPI、输入法和第三方应用的实际验收。
 
+OCR 的小范围实用性检查可运行 `.\scripts\test-ocr.ps1`，首次下载 4 张固定版本、SHA-256 校验的公开样例到被忽略的 `.local/`，随后可加 `-SkipDownload` 使用缓存。结果保存到 `artifacts/ocr-smoke/ocr-smoke.json`。检查另含本地生成的浅色/深色中英混排与空白图，不把小样本通过率当作通用准确率。增强引擎文本不符（包括空白误报）、推理异常、越界字符框或重复结果不稳定会返回失败；Windows 引擎文本仅作对照记录。详见 [OCR 接入与后续翻译](OCR_TRANSLATION_PLAN.md)。
+
 ## 代码导航
 
 | 模块 | 文件 |
@@ -44,7 +46,7 @@ dotnet run --project tests/SnipLite.SelfTest -c Release -- --text-test
 | 程序入口、托盘与热键 | `Program.cs`、`TrayContext.cs`、`HotkeyHost.cs` |
 | 截图与自动选区 | `CaptureForm.cs`、`DesktopTargets.cs`、`CaptureCrosshair.cs` |
 | 标注与文字编辑 | `Annotation.cs`、`AnnotationBar.cs`、`TextEditLayout.cs`、`ImeSink.cs` |
-| OCR 与扫码 | `Services.cs`、`OcrSelection.cs`、`RecognitionResultForm.cs` |
+| OCR 与扫码 | `Services.cs`、`SimdOcr.cs`、`OcrSelection.cs`、`RecognitionResultForm.cs` |
 | 贴图 | `PinForm.cs`、`PinShadowWindow.cs`、`TextImageRenderer.cs` |
 | 首选项与持久化 | `PreferencesForm.cs`、`PreferencesPages.cs`、`AppSettings.cs`、`PreferenceSettings.cs` |
 

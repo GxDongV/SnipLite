@@ -196,7 +196,7 @@ internal sealed class TrayContext : ApplicationContext
     {
         using (image)
         {
-            var text = await Task.Run(() => Services.OcrAsync(image, _settings.OcrLanguage));
+            var text = await Task.Run(() => Services.OcrAsync(image, _settings.OcrLanguage, _settings.OcrEngine));
             if (string.IsNullOrWhiteSpace(text)) { Toast.Show("没有识别到文字"); return; }
             try { Clipboard.SetText(text); Toast.Show("文字已复制"); } catch (Exception ex) { Toast.Error("复制失败：" + ex.Message); }
         }

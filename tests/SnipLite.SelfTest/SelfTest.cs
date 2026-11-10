@@ -556,7 +556,7 @@ internal static partial class SelfTest
         var empty = Task.Run(() => Services.RecognizeTextAsync(blank, "zh-Hans")).GetAwaiter().GetResult();
         Check("ocr_empty", empty.Characters.Count == 0);
 
-        // Exercise Windows OCR's image-size limit and original-pixel mapping.
+        // Exercise input resizing and original-pixel mapping for a large crop.
         using var large = new Bitmap(6000, 1600);
         using (var g = Graphics.FromImage(large))
         {

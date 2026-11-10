@@ -2,6 +2,23 @@
 
 SnipLite's original source code is licensed under the MIT License. Dependencies retain their own licenses.
 
+## SimdPaddleOCR and embedded PP-OCRv6 Small models
+
+| Package | Version | License |
+| --- | --- | --- |
+| Sdcb.SimdPaddleOCR | 2.0.0 | Apache-2.0 |
+| Sdcb.SimdPaddleOCR.ModelProvider | 1.0.0 | Apache-2.0 |
+| Sdcb.SimdPaddleOCR.Models.ChineseV6Small | 1.0.0 | Apache-2.0 |
+| Sdcb.SimdPaddleOCR.Models.TextLineOrientation | 1.0.0 | Apache-2.0 |
+
+Copyright (c) 2026 Sdcb.PaddleOCR contributors. The bundled PP-OCRv6 DET/REC, text-line orientation CLS and dictionary originate from the PaddleOCR ecosystem: Copyright (c) 2016 PaddlePaddle Authors. All Rights Reserved.
+
+- Upstream: https://github.com/sdcb/SimdPaddleOCR and https://github.com/PaddlePaddle/PaddleOCR
+- License: [Apache License 2.0](licenses/SimdPaddleOCR-Apache-2.0.txt)
+- Original model attribution and sources: [upstream third-party notices](licenses/SimdPaddleOCR-THIRD-PARTY-NOTICES.txt)
+
+SnipLite uses the CPU inference path. The models are embedded in their package assemblies; no external model service or API key is required. PaddleOCR and PP-OCR names belong to their respective owners; SnipLite is not endorsed by them.
+
 ## ZXing.Net and Windows Compatibility bindings
 
 | Package | Version | License |

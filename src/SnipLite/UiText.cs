@@ -4,6 +4,7 @@ internal static class UiText
 {
     private static readonly Dictionary<string, string> English = new()
     {
+        ["文字识别"]="OCR engine", ["本地增强（中英自动识别）"]="Local enhanced (Chinese / English)", ["Windows 系统识别"]="Windows OCR", ["系统识别语言"]="Windows OCR language",
         ["GitHub 项目"]="GitHub project", ["问题反馈"]="Report an issue", ["开源许可证"]="License", ["发布版本"]="Releases",
         ["常规"]="General", ["界面"]="UI", ["截屏"]="Capture", ["贴图"]="Pin", ["输出"]="Output", ["控制"]="Control", ["更新"]="Update", ["关于"]="About",
         ["显示"]="Display", ["行为"]="Behavior", ["按键"]="Keys", ["转换"]="Conversion", ["文件"]="Files", ["剪贴板"]="Clipboard", ["鼠标"]="Mouse", ["全局快捷键"]="Global hotkeys",

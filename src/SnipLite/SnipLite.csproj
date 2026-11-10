@@ -23,6 +23,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="SnipLite.SelfTest" />
+    <PackageReference Include="Sdcb.SimdPaddleOCR" Version="2.0.0" />
+    <PackageReference Include="Sdcb.SimdPaddleOCR.Models.ChineseV6Small" Version="1.0.0" />
     <PackageReference Include="ZXing.Net.Bindings.Windows.Compatibility" Version="0.16.17" />
     <EmbeddedResource Include="../../LICENSE" LogicalName="SnipLite.Notices.LICENSE" />
     <EmbeddedResource Include="../../THIRD_PARTY_NOTICES.md" LogicalName="SnipLite.Notices.THIRD_PARTY_NOTICES.md" />

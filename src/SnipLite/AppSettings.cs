@@ -8,6 +8,7 @@ internal sealed partial class AppSettings
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "SnipLite");
 
     public string OcrLanguage { get; set; } = "zh-Hans";
+    public OcrEngineKind OcrEngine { get; set; } = OcrEngineKind.SimdPaddle;
 
     /// <summary>Alpha of the dimming mask over the frozen desktop (0-200).</summary>
     public int MaskOpacity { get; set; } = 110;

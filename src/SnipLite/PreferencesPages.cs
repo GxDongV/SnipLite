@@ -87,7 +87,8 @@ internal sealed partial class PreferencesForm
     private void GeneralPage()
     {
         Choice("显示语言", nameof(_s.DisplayLanguage), new[] { "简体中文", "English" }, new object[] { "zh-CN", "en-US" });
-        Choice("识别语言", nameof(_s.OcrLanguage), new[] { "简体中文", "English", "跟随系统" }, new object[] { "zh-Hans", "en-US", "" });
+        Choice("文字识别", nameof(_s.OcrEngine), new[] { "本地增强（中英自动识别）", "Windows 系统识别" }, new object[] { OcrEngineKind.SimdPaddle, OcrEngineKind.Windows });
+        Choice("系统识别语言", nameof(_s.OcrLanguage), new[] { "简体中文", "English", "跟随系统" }, new object[] { "zh-Hans", "en-US", "" });
         Value(nameof(_s.StartWithWindows)); Value(nameof(_s.StartAsAdministrator));
         Check("开机启动", _s.StartWithWindows, value =>
         {

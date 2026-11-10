@@ -1,0 +1,40 @@
+# OCR 接入与后续截图翻译
+
+2026-11-11：以日常截图识别、划词和复制够用为目标。当前接入本地轻量模型，暂不加入分块识别、多模型投票、复杂文档分析或离线翻译模型。
+
+## 当前实现
+
+- 固定 `Sdcb.SimdPaddleOCR` 2.0.0 和 `Sdcb.SimdPaddleOCR.Models.ChineseV6Small` 1.0.0，使用 CPU，无需额外原生推理运行库。
+- 模型随程序附带，第一次点击 OCR 才在后台加载，后续复用；截图、贴图与 OCR 快捷键共用一个实例，串行处理请求以控制并发内存。
+- 直接传入截图 BGRA 像素，中英文自动识别。极大图片限制长边 4096、总像素约 1600 万，再映射坐标回原图。
+- 使用模型 CTC 对齐估算字符框，延续原图划词、全选、复制和 Esc 返回。字符框仍是估算值，旋转文字使用轴对齐外框。
+- 首选项可切换 Windows OCR，系统识别语言仅作用于 Windows 引擎。增强引擎异常会记录日志并尝试系统引擎，成功返回空文本则直接显示未识别到文字。
+- Windows OCR 备用路径仍需要系统语言包。截图不会上传，识别文本不写入应用日志。
+
+上游源码已拉取到被忽略的 `.local/upstream/` 供核对。查看的上游提交是 `9b82a859c615f06e22d7f5cafdc35b4ba2f398ad`；实际运行的是上述固定 NuGet 版本，而非上游 main 的开发版。
+
+## 小范围检查
+
+运行 `.\scripts\test-ocr.ps1`。公开样例来自 [RapidOCR 测试目录](https://github.com/RapidAI/RapidOCR/tree/a538d3a75e26ca7ac521da8602842b9d6e5a872d/python/tests/test_files)，下载时校验 SHA-256。正确文本在执行识别前从图片及上游测试核对，固定在诊断代码中。原图只存本地，不进入源码提交和发布包。
+
+| 样例 | 增强引擎结果 | 本机重复识别耗时 |
+| --- | --- | --- |
+| `text_rec.jpg`：韩国小馆 | 相符 | 31 ms |
+| `en_rec.jpg`：英文句子 | 相符 | 51 ms |
+| `short.png`：中国网络空间安全 | 相符 | 14 ms |
+| `text_cls.jpg`：倒置的「怪我咯」 | 相符 | 16 ms |
+| 本地绘制浅色中英界面文字 | 相符 | 60 ms |
+| 本地绘制深色中英界面文字 | 相符 | 65 ms |
+| 空白图 | 无误报 | 15 ms |
+
+本次进程首次请求约 325 ms，含模型初始化、JIT 和识别。结果来自本机 Release CPU 运行，每张图两次；不代表其他硬件、真实复杂截图或大图的速度。文本比较使用 NFKC 并忽略空白，保留大小写和标点。原始文本及耗时见本地 `artifacts/ocr-smoke/ocr-smoke.json`。
+
+同批 Windows OCR 在四张紧裁切公开图片上返回空文本；本地浅色/深色样例可识别，但将 `Ctrl+C`、`复制` 和版本号标点识别错。这些是少量便利样例，不能换算成通用准确率或推广为所有场景的引擎排名。另通过现有 123 项桌面回归，覆盖划词逻辑、空白图、大图坐标、扫码及原有编辑交互。
+
+## 后续翻译
+
+下一步单独实现工具栏「翻译」按钮：复用 OCR 原文，展示紧凑的原文/译文和复制按钮，Esc 返回编辑；切换目标语言时不重复 OCR。
+
+优先按用户选择接入 Google 或微软。实现时先确认具体接口：官方 [Google Cloud Translation](https://cloud.google.com/translate/docs/reference/rest) 或 [Microsoft Translator](https://learn.microsoft.com/en-us/azure/ai-services/translator/text-translation/reference/v3/translate)，与网站内部调用的匿名接口应作为不同适配器处理，不能把网页接口的可用性当成稳定承诺。
+
+本轮没有加入翻译请求、密钥配置和翻译 UI。未来在线翻译仅提交识别后的文字，并提供失败提示、超时和取消；本地 OCR 独立可用。

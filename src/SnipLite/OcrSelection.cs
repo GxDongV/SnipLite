@@ -12,6 +12,11 @@ internal sealed class OcrDocument
     public IReadOnlyList<RecognizedCharacter> Characters { get; }
     public string Text => GetText(0, Characters.Count - 1);
 
+    private OcrDocument(IReadOnlyList<RecognizedCharacter> characters) => Characters = characters;
+
+    internal static OcrDocument FromCharacters(IEnumerable<RecognizedCharacter> characters)
+        => new(characters.ToArray());
+
     public OcrDocument(IEnumerable<RecognizedWord> words)
     {
         var characters = new List<RecognizedCharacter>();

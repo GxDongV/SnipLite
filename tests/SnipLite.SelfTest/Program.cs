@@ -17,6 +17,7 @@ internal static class Program
             case "--menu-test": SelfTest.RunMenuCheck(); break;
             case "--target-test": SelfTest.RunTargetCheck(); break;
             case "--text-test": SelfTest.RunTextCheck(); break;
+            case "--ocr-smoke": SelfTest.RunOcrSmoke(args.Skip(1).FirstOrDefault()); break;
             case "--demo": SelfTest.RenderDemo(); break;
             case "--annotation-demo": SelfTest.RenderAnnotationDemo(); break;
             case "--preferences-demo": SelfTest.RenderPreferencesDemo(); break;

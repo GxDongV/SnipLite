@@ -10,20 +10,36 @@ namespace SnipLite;
 
 internal static partial class Services
 {
-    /// <summary>Local OCR through the Windows engine: no extra runtime, no network.</summary>
-    public static async Task<string> OcrAsync(Bitmap bitmap, string language)
+    /// <summary>Local OCR; no screenshot is sent to a server.</summary>
+    public static async Task<string> OcrAsync(Bitmap bitmap, string language, OcrEngineKind engine = OcrEngineKind.SimdPaddle)
     {
         try
         {
-            return (await RecognizeTextAsync(bitmap, language)).Text;
+            return (await RecognizeTextAsync(bitmap, language, engine)).Text;
         }
-        catch
+        catch (Exception ex)
         {
+            AppLog.Write("文字识别失败", ex);
             return string.Empty;
         }
     }
 
-    public static async Task<OcrDocument> RecognizeTextAsync(Bitmap bitmap, string language)
+    public static async Task<OcrDocument> RecognizeTextAsync(Bitmap bitmap, string language, OcrEngineKind engine = OcrEngineKind.SimdPaddle)
+    {
+        if (engine != OcrEngineKind.Windows)
+        {
+            try { return await SimdOcr.RecognizeAsync(bitmap).ConfigureAwait(false); }
+            catch (Exception ex)
+            {
+                // A failed model load/inference must not take down capture or pinning.
+                // An empty successful result is left empty rather than running twice.
+                AppLog.Write("本地增强识别不可用，改用 Windows OCR", ex);
+            }
+        }
+        return await RecognizeWindowsTextAsync(bitmap, language).ConfigureAwait(false);
+    }
+
+    internal static async Task<OcrDocument> RecognizeWindowsTextAsync(Bitmap bitmap, string language)
     {
             using var memory = new MemoryStream();
             bitmap.Save(memory, ImageFormat.Png);
