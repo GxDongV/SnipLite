@@ -10,14 +10,16 @@ internal sealed partial class CaptureForm
     private Rectangle _translationCrop;
     private CancellationTokenSource? _translationCancellation;
     private int _translationRequest;
-    private ITranslationProvider _translationProvider = new GooglePublicTranslationProvider();
+    private ITranslationProvider _translationProvider;
     private readonly Dictionary<(string Text, string Source, string Target), TranslationResult> _translationCache = new();
     private bool TranslationVisible => _translationPanel is { Visible: true };
 
     private void EnsureTranslationPanel()
     {
         if (_translationPanel is not null) return;
-        _translationPanel = new TranslationPanel(Ui, _settings.TranslationSourceLanguage, _settings.TranslationTargetLanguage, _settings.Accent) { Visible = false };
+        _translationPanel = new TranslationPanel(Ui, _settings.TranslationSourceLanguage, _settings.TranslationTargetLanguage,
+            _settings.Accent, _settings.TranslationProvider) { Visible = false };
+        _translationPanel.ProviderRequested += SwitchTranslationProvider;
         _translationPanel.LanguagesChanged += swapped =>
         {
             _settings.TranslationSourceLanguage = _translationPanel.SourceLanguage;
@@ -37,6 +39,21 @@ internal sealed partial class CaptureForm
             menu.Closed += (_, _) => _optionMenus.Remove(menu);
         };
         Controls.Add(_translationPanel);
+    }
+
+    private void SwitchTranslationProvider(TranslationProviderKind provider)
+    {
+        if (_translationPanel is not { Visible: true } panel || panel.Provider == provider) return;
+        if (provider == TranslationProviderKind.Microsoft && !MicrosoftTranslatorCredentials.HasKey())
+        {
+            panel.SetStatus("请在首选项 → 常规 → 配置微软密钥");
+            return;
+        }
+        _translationProvider = TranslationProviders.Create(provider);
+        panel.SetProvider(provider);
+        _translationCache.Clear();
+        // An OCR request may still be running. It will use the newly selected provider when it completes.
+        if (!string.IsNullOrWhiteSpace(_translationInput)) _ = TranslateRecognizedTextAsync();
     }
 
     private async Task TranslateSelectionAsync()
@@ -83,6 +100,7 @@ internal sealed partial class CaptureForm
         _translationCancellation = cancellation;
         var request = ++_translationRequest;
         var source = _translationPanel!.SourceLanguage; var target = _translationPanel.TargetLanguage;
+        var provider = _translationProvider;
         var blocks = _translationBlocks.Count > 0 ? _translationBlocks : new[] { new TranslationBlock(_translationInput, new(0, 0, 1, 1), 1) };
         _translationLayer?.Dispose(); _translationLayer = null;
         _translationPanel.SetBusy("正在翻译…"); Invalidate(_selection);
@@ -101,7 +119,7 @@ internal sealed partial class CaptureForm
                     var key = (block.Text, source, target);
                     if (force || !_translationCache.TryGetValue(key, out var result))
                     {
-                        result = await _translationProvider.TranslateAsync(block.Text, source, target, cancellation.Token);
+                        result = await provider.TranslateAsync(block.Text, source, target, cancellation.Token);
                         cancellation.Token.ThrowIfCancellationRequested();
                         if (_translationCache.Count >= 80) _translationCache.Clear();
                         _translationCache[key] = result;

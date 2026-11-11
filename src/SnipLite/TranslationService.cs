@@ -23,6 +23,30 @@ internal static class TranslationLanguages
 
 internal sealed record TranslationResult(string Text, string? DetectedLanguage);
 
+internal enum TranslationProviderKind { Google, Microsoft, Bing, MyMemory }
+
+internal static class TranslationProviders
+{
+    public static readonly (TranslationProviderKind Kind, string Label)[] Choices =
+    {
+        (TranslationProviderKind.Bing, "必应网页翻译"),
+        (TranslationProviderKind.Google, "Google"),
+        (TranslationProviderKind.MyMemory, "MyMemory"),
+        (TranslationProviderKind.Microsoft, "Microsoft Azure")
+    };
+
+    public static string Label(TranslationProviderKind kind)
+        => Choices.FirstOrDefault(choice => choice.Kind == kind).Label ?? Choices[0].Label;
+
+    public static ITranslationProvider Create(TranslationProviderKind kind) => kind switch
+    {
+        TranslationProviderKind.Google => new GooglePublicTranslationProvider(),
+        TranslationProviderKind.Microsoft => new MicrosoftTranslationProvider(),
+        TranslationProviderKind.MyMemory => new MyMemoryTranslationProvider(),
+        _ => BingWebTranslationProvider.Shared
+    };
+}
+
 internal interface ITranslationProvider
 {
     Task<TranslationResult> TranslateAsync(string text, string source, string target, CancellationToken cancellationToken);

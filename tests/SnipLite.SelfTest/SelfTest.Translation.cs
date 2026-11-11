@@ -7,7 +7,7 @@ namespace SnipLite;
 
 internal static partial class SelfTest
 {
-    public static void RunTranslationCheck(bool live)
+    public static void RunTranslationCheck(bool live, bool bingLive = false, bool myMemoryLive = false)
     {
         var report = new List<string>();
         void Check(string name, bool passed)
@@ -30,6 +30,45 @@ internal static partial class SelfTest
             Check("ocr_distant_whitespace_not_selected", document.HitTest(new(25, 52), tolerance: 8) == -1);
             Check("ocr_drag_outside_still_snaps", document.HitTest(new(120, 28), nearest: true) == 1);
             Check("english_localization_initializes", UiText.T("文字识别", "en-US") == "OCR" && UiText.T("识别引擎", "en-US") == "OCR engine");
+
+            const string sample = "Hello & world\n?";
+            CheckMyMemory(Check, myMemoryLive);
+            if (bingLive)
+            {
+                var firstBing = BingWebTranslationProvider.Shared.TranslateAsync("Hello world", "en", "zh-CN", default);
+                var secondBing = BingWebTranslationProvider.Shared.TranslateAsync("Good morning", "auto", "zh-CN", default);
+                Task.WhenAll(firstBing, secondBing).GetAwaiter().GetResult();
+                Check("bing_live_parallel_requests", firstBing.Result.Text.Contains("世界")
+                    && secondBing.Result.Text.Contains("早上") && secondBing.Result.DetectedLanguage == "en");
+            }
+            var microsoftRequestMatches = false;
+            var microsoftHandler = new TranslationHttpHandler(async (request, token) =>
+            {
+                using var body = System.Text.Json.JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token).ConfigureAwait(false));
+                microsoftRequestMatches = request.Method == HttpMethod.Post
+                    && request.Headers.GetValues("Ocp-Apim-Subscription-Key").Single() == "test-key"
+                    && request.Headers.GetValues("Ocp-Apim-Subscription-Region").Single() == "eastasia"
+                    && body.RootElement[0].GetProperty("Text").GetString() == sample;
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""[{"detectedLanguage":{"language":"zh-Hant"},"translations":[{"text":"你好"}]}]""")
+                };
+            });
+            using var microsoftHttp = new HttpClient(microsoftHandler);
+            var microsoftCredentials = new MicrosoftTranslatorCredentials("test-key", "eastasia");
+            try { new MicrosoftTranslationProvider(microsoftHttp, new("", "")).TranslateAsync(sample, "en", "en", default).GetAwaiter().GetResult(); Check("microsoft_key_required", false); }
+            catch (InvalidOperationException ex) { Check("microsoft_key_required", ex.Message.Contains("填写 Translator 密钥") && microsoftHandler.Calls == 0); }
+            var microsoft = new MicrosoftTranslationProvider(microsoftHttp, microsoftCredentials);
+            var microsoftResult = microsoft.TranslateAsync(sample, "auto", "zh-CN", default).GetAwaiter().GetResult();
+            Check("microsoft_translation_post_and_detection", microsoftRequestMatches
+                && microsoftHandler.LastUri!.Host == "api.cognitive.microsofttranslator.com"
+                && microsoftHandler.LastUri.Query == "?api-version=3.0&to=zh-Hans"
+                && microsoftResult == new TranslationResult("你好", "zh-TW"));
+            microsoft.TranslateAsync(sample, "zh-TW", "en", default).GetAwaiter().GetResult();
+            Check("microsoft_explicit_source_language", microsoftHandler.LastUri!.Query.Contains("from=zh-Hant"));
+            using var deniedHttp = new HttpClient(new TranslationHttpHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized))));
+            try { new MicrosoftTranslationProvider(deniedHttp, microsoftCredentials).TranslateAsync(sample, "en", "zh-CN", default).GetAwaiter().GetResult(); Check("microsoft_invalid_credentials", false); }
+            catch (InvalidOperationException ex) { Check("microsoft_invalid_credentials", ex.Message.Contains("检查密钥") && !ex.Message.Contains("test-key")); }
 
             var handler = new TranslationHttpHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             { Content = new StringContent("[[[\"你好\",\"Hello\"],[\"世界\",\"world\"]],null,\"en\"]", Encoding.UTF8, "application/json") }));
@@ -148,6 +187,35 @@ internal static partial class SelfTest
         typeof(CaptureForm).GetMethod("ProcessCmdKey", flags)!.Invoke(capture, keyArgs);
         controlled.Requests[2].Completion.SetResult(new("不应弹回", "en")); Complete(pending);
         check("escape_cancels_and_returns_to_editing", !panel.Visible && !(bool)Get(capture, "_finished")! && controlled.Requests[2].Token.IsCancellationRequested);
+
+        // Same-language translation lets the real provider switch run without an online request.
+        var targetProperty = typeof(TranslationPanel).GetProperty(nameof(TranslationPanel.TargetLanguage))!;
+        targetProperty.SetValue(panel, "en");
+        panel.Visible = true;
+        Set(capture, "_translationInput", "Existing OCR text");
+        var cached = (Task)Call(capture, "TranslateRecognizedTextAsync", false)!;
+        controlled.Requests[^1].Completion.SetResult(new("旧服务的缓存", "en"));
+        Complete(cached);
+        var previous = (Task)Call(capture, "TranslateRecognizedTextAsync", true)!;
+        var previousRequest = controlled.Requests[^1];
+        panel.Controls.OfType<Button>().Single(button => button.AccessibleName == "翻译服务").PerformClick();
+        Application.DoEvents();
+        var providerMenu = ((List<ContextMenuStrip>)typeof(TranslationPanel).GetField("_menus", flags)!.GetValue(panel)!).Last();
+        check("capture_provider_menu_lists_preference_services",
+            providerMenu.Items.Cast<ToolStripItem>().Select(item => item.Text).SequenceEqual(TranslationProviders.Choices.Select(choice => choice.Label)));
+        ((ToolStripMenuItem)providerMenu.Items.Cast<ToolStripItem>().Single(item => item.Text == "MyMemory")).PerformClick();
+        providerMenu.Close();
+        Application.DoEvents();
+        previousRequest.Completion.SetResult(new("旧服务的迟到结果", "en"));
+        Complete(previous);
+        check("capture_provider_switch_reuses_ocr_and_cancels_old_result",
+            panel.Provider == TranslationProviderKind.MyMemory && panel.ResultText == "Existing OCR text"
+            && previousRequest.Token.IsCancellationRequested);
+        check("capture_provider_switch_keeps_preference_default",
+            ((AppSettings)Get(capture, "_settings")!).TranslationProvider == TranslationProviderKind.Bing);
+        Call(capture, "CloseTranslation");
+        targetProperty.SetValue(panel, "zh-CN");
+        panel.SetProvider(TranslationProviderKind.Bing);
 
         // Paint the entire selected crop with our fixture; only these generated words can go online.
         var bitmap = (Bitmap)Get(capture, "_screenshot")!;
@@ -270,6 +338,37 @@ internal static partial class SelfTest
             g.DrawImageUnscaled(row, bar.MainBounds.Left, bar.Bounds.Bottom + (int)(4 * scale));
         }
         canvas.Save(Path.Combine(OutputDir, "translation-overlay-preview.png"));
+    }
+
+    private static void CheckMyMemory(Action<string, bool> check, bool live)
+    {
+        var text = new string('字', 165) + "😀😀\r\nSecond & line";
+        var chunks = MyMemoryTranslationProvider.SplitText(text).ToArray();
+        check("mymemory_utf8_chunk_limit", string.Concat(chunks.Select(part => part.Text + part.Separator)) == text
+            && chunks.All(part => Encoding.UTF8.GetByteCount(part.Text) <= 500 && !part.Text.Contains('\n'))
+            && chunks.Any(part => part.Text.StartsWith("😀", StringComparison.Ordinal)));
+        var handler = new TranslationHttpHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""{"responseStatus":200,"quotaFinished":false,"responseData":{"translatedText":"你好 &amp; 世界"}}""")
+        }));
+        using var http = new HttpClient(handler);
+        var provider = new MyMemoryTranslationProvider(http);
+        var result = provider.TranslateAsync("Hello & world", "en", "zh-CN", default).GetAwaiter().GetResult();
+        check("mymemory_query_and_result", result == new TranslationResult("你好 & 世界", "en")
+            && handler.LastUri!.Query.Contains("langpair=en%7Czh-CN") && handler.LastUri.Query.Contains("q=Hello%20%26%20world"));
+        try { provider.TranslateAsync("Hello", "auto", "zh-CN", default).GetAwaiter().GetResult(); check("mymemory_explicit_source", false); }
+        catch (InvalidOperationException ex) { check("mymemory_explicit_source", handler.Calls == 1 && ex.Message.Contains("选择源语言")); }
+        using var quotaHttp = new HttpClient(new TranslationHttpHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""{"responseStatus":429,"quotaFinished":true,"responseData":{"translatedText":"quota warning"}}""")
+        })));
+        try { new MyMemoryTranslationProvider(quotaHttp).TranslateAsync("Hello", "en", "zh-CN", default).GetAwaiter().GetResult(); check("mymemory_quota_error", false); }
+        catch (InvalidOperationException ex) { check("mymemory_quota_error", ex.Message.Contains("匿名额度已用完")); }
+        if (live)
+        {
+            var liveResult = new MyMemoryTranslationProvider().TranslateAsync("Hello world", "en", "zh-CN", default).GetAwaiter().GetResult();
+            check("mymemory_live_translation", liveResult.Text.Contains("世界"));
+        }
     }
 
     private sealed class TranslationHttpHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send) : HttpMessageHandler

@@ -121,6 +121,7 @@ internal sealed partial class AppSettings
         if (!Enum.IsDefined(OcrEngine)) OcrEngine = OcrEngineKind.SimdPaddle;
         TranslationSourceLanguage = TranslationLanguages.Normalize(TranslationSourceLanguage, allowAuto: true, "en");
         TranslationTargetLanguage = TranslationLanguages.Normalize(TranslationTargetLanguage, allowAuto: false, "zh-CN");
+        if (!Enum.IsDefined(TranslationProvider)) TranslationProvider = TranslationProviderKind.Bing;
         InterfaceFontSize = Math.Clamp(InterfaceFontSize, 7, 24);
         TextImageFontSize = Math.Clamp(TextImageFontSize, 6, 100);
         TextImageMargin = Math.Clamp(TextImageMargin, 0, 200);

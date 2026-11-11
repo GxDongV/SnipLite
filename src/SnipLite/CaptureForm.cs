@@ -125,6 +125,7 @@ internal sealed partial class CaptureForm : Form
         _annotate = mode != CaptureMode.Ocr;
         _qrCaptureOnly = mode == CaptureMode.Qr;
         _settings = settings;
+        _translationProvider = TranslationProviders.Create(settings.TranslationProvider);
         _hexColor = settings.ColorHex;
         _magnifierZoom = settings.MagnifierZoom;
         _preset = preset;

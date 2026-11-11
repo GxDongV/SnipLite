@@ -89,6 +89,38 @@ internal sealed partial class PreferencesForm
         Choice("显示语言", nameof(_s.DisplayLanguage), new[] { "简体中文", "English" }, new object[] { "zh-CN", "en-US" });
         Choice("识别引擎", nameof(_s.OcrEngine), new[] { "本地增强（中英自动识别）", "Windows 系统识别" }, new object[] { OcrEngineKind.SimdPaddle, OcrEngineKind.Windows });
         Choice("系统识别语言", nameof(_s.OcrLanguage), new[] { "简体中文", "English", "跟随系统" }, new object[] { "zh-Hans", "en-US", "" });
+        var translationServices = TranslationProviders.Choices.Select(choice => choice.Kind).ToArray();
+        var translationLabels = TranslationProviders.Choices.Select(choice => choice.Label).ToArray();
+        int CurrentServiceIndex() => Math.Max(0, Array.IndexOf(translationServices, _s.TranslationProvider));
+        Value(nameof(_s.TranslationProvider));
+        Button translationService = null!;
+        translationService = MakeChooser(translationLabels, CurrentServiceIndex(), index =>
+        {
+            var requested = translationServices[index];
+            if (requested != TranslationProviderKind.Microsoft || MicrosoftTranslatorCredentials.HasKey())
+            {
+                Set(nameof(_s.TranslationProvider), requested);
+                return;
+            }
+
+            translationService.Text = translationLabels[CurrentServiceIndex()];
+            // The dropdown must finish closing before a modal dialog opens.
+            BeginInvoke(() =>
+            {
+                if (translationService.IsDisposed || ConfigureMicrosoftTranslator(requireKey: true) != true) return;
+                Set(nameof(_s.TranslationProvider), requested);
+                if (!translationService.IsDisposed) translationService.Text = translationLabels[index];
+            });
+        });
+        var configureTranslator = new Button();
+        StyleButton(configureTranslator, "配置微软密钥");
+        configureTranslator.Click += (_, _) =>
+        {
+            if (ConfigureMicrosoftTranslator() != false || _s.TranslationProvider != TranslationProviderKind.Microsoft) return;
+            Set(nameof(_s.TranslationProvider), TranslationProviderKind.Bing);
+            if (!translationService.IsDisposed) translationService.Text = translationLabels[0];
+        };
+        Row("翻译服务", translationService, configureTranslator);
         Value(nameof(_s.StartWithWindows)); Value(nameof(_s.StartAsAdministrator));
         Check("开机启动", _s.StartWithWindows, value =>
         {
@@ -118,6 +150,59 @@ internal sealed partial class PreferencesForm
         };
         Row("", openFolder, open, change);
     }
+    private bool? ConfigureMicrosoftTranslator(bool requireKey = false)
+    {
+        MicrosoftTranslatorCredentials? current = null;
+        try { current = MicrosoftTranslatorCredentials.Load(); }
+        catch (InvalidOperationException ex) { Toast.Error(ex.Message); }
+
+        using var dialog = new Form
+        {
+            Text = "Microsoft Translator",
+            Font = Font,
+            AutoScaleDimensions = new SizeF(96, 96),
+            AutoScaleMode = AutoScaleMode.Dpi,
+            ClientSize = new Size(440, 164),
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            StartPosition = FormStartPosition.CenterParent,
+            MinimizeBox = false,
+            MaximizeBox = false,
+            ShowInTaskbar = false
+        };
+        var key = new TextBox { Bounds = new Rectangle(128, 17, 294, 26), UseSystemPasswordChar = true, Text = current?.Key ?? "" };
+        var region = new TextBox { Bounds = new Rectangle(128, 52, 294, 26), Text = current?.Region ?? "" };
+        var save = new Button { Text = "保存", Bounds = new Rectangle(254, 118, 80, 30), Enabled = !requireKey || !string.IsNullOrWhiteSpace(key.Text) };
+        if (requireKey) key.TextChanged += (_, _) => save.Enabled = !string.IsNullOrWhiteSpace(key.Text);
+        var cancel = new Button { Text = "取消", Bounds = new Rectangle(342, 118, 80, 30), DialogResult = DialogResult.Cancel };
+        dialog.Controls.AddRange(new Control[]
+        {
+            new Label { Text = "Translator 密钥", Bounds = new Rectangle(18, 20, 110, 26) },
+            new Label { Text = "资源区域", Bounds = new Rectangle(18, 55, 110, 26) },
+            new Label
+            {
+                Text = requireKey ? "请输入 Azure Translator 密钥。全局资源可留空区域。" : "全局资源可留空区域。留空密钥并保存可清除配置。",
+                Bounds = new Rectangle(18, 86, 404, 28)
+            },
+            key, region, save, cancel
+        });
+        save.Click += (_, _) =>
+        {
+            try
+            {
+                MicrosoftTranslatorCredentials.Save(key.Text.Trim(), region.Text.Trim().ToLowerInvariant());
+                dialog.DialogResult = DialogResult.OK;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+            {
+                MessageBox.Show(dialog, "无法保存微软翻译密钥，请检查本地目录权限后重试。", dialog.Text,
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        };
+        dialog.AcceptButton = save;
+        dialog.CancelButton = cancel;
+        return dialog.ShowDialog(this) == DialogResult.OK ? !string.IsNullOrWhiteSpace(key.Text) : null;
+    }
+
     private void InterfacePage()
     {
         FontRow("界面字体", nameof(_s.InterfaceFont), nameof(_s.InterfaceFontSize));

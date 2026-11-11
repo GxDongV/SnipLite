@@ -8,6 +8,7 @@ internal sealed class TranslationPanel : UserControl
     internal static readonly Color Surface = SnipMenuRenderer.Back;
     private static readonly Color Ink = Color.FromArgb(62, 62, 62);
     private readonly Color _accent;
+    private readonly Button _providerButton;
     private readonly Button _source;
     private readonly Button _target;
     private readonly Button _swap;
@@ -27,13 +28,16 @@ internal sealed class TranslationPanel : UserControl
     public string? DetectedLanguage { get; private set; }
     public string ResultText { get; private set; } = "";
     public bool ShowOriginal { get; private set; }
+    public TranslationProviderKind Provider { get; private set; }
+    private bool AllowAutoSource => Provider != TranslationProviderKind.MyMemory;
     public event Action<bool>? LanguagesChanged;
+    public event Action<TranslationProviderKind>? ProviderRequested;
     public event Action? ViewChanged;
     public event Action? RetryRequested;
     public event Action<ContextMenuStrip>? MenuOpening;
     private int Px(int value) => (int)Math.Round(value * _scale);
 
-    public TranslationPanel(float scale, string source, string target, Color? accent = null)
+    public TranslationPanel(float scale, string source, string target, Color? accent = null, TranslationProviderKind provider = TranslationProviderKind.Google)
     {
         _scale = scale; _accent = accent ?? AnnotationBar.DefaultAccent;
         AutoScaleMode = AutoScaleMode.None; BackColor = Surface; ForeColor = Ink;
@@ -43,27 +47,27 @@ internal sealed class TranslationPanel : UserControl
         Font = _contentFont;
         SourceLanguage = TranslationLanguages.Normalize(source, true, "en");
         TargetLanguage = TranslationLanguages.Normalize(target, false, "zh-CN");
-        _source = MakeButton("", () => ShowLanguages(true));
-        _target = MakeButton("", () => ShowLanguages(false));
-        _swap = MakeButton("⇄", SwapLanguages);
+        _source = MakeDropdown("源语言", () => ShowLanguages(true));
+        _target = MakeDropdown("目标语言", () => ShowLanguages(false));
+        _swap = MakeIconButton("交换源语言和目标语言", SwapLanguages, DrawSwapIcon);
         _tips.SetToolTip(_swap, "交换源语言和目标语言");
-        _view = MakeButton("", ToggleView); _view.AccessibleName = "切换原文 / 译文";
-        _view.Paint += (_, e) => DrawViewIcon(e.Graphics, _view.ClientRectangle, _view.Enabled);
-        _copy = MakeButton("", CopyText); _copy.AccessibleName = "复制识别文字";
-        _copy.Paint += (_, e) => DrawCopyIcon(e.Graphics, _copy.ClientRectangle, _copy.Enabled);
-        _retry = MakeButton("↻", () => RetryRequested?.Invoke()); _retry.AccessibleName = "重新翻译";
+        _view = MakeIconButton("切换原文 / 译文", ToggleView, DrawViewIcon);
+        _copy = MakeIconButton("复制识别文字", CopyText, DrawCopyIcon);
+        _retry = MakeIconButton("重新翻译", () => RetryRequested?.Invoke(), DrawRetryIcon);
         _tips.SetToolTip(_retry, "重新翻译");
+        _providerButton = MakeDropdown("翻译服务", ShowProviders);
+        _tips.SetToolTip(_providerButton, "切换本次截图的翻译服务");
         _status = new Label { ForeColor = Color.FromArgb(110, 110, 110), Font = _smallFont, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
         Controls.Add(_status);
         Width = Px(680); Height = Px(44);
-        UpdateLanguages(); SetBusy("正在识别…");
+        SetProvider(provider); SetBusy("正在识别…");
     }
 
-    private Button MakeButton(string text, Action click)
+    private Button MakeButton(Action click)
     {
         var button = new Button
         {
-            Text = text, FlatStyle = FlatStyle.Flat, BackColor = Surface, ForeColor = Ink,
+            FlatStyle = FlatStyle.Flat, BackColor = Surface, ForeColor = Ink,
             Cursor = Cursors.Hand, Font = _contentFont, UseVisualStyleBackColor = false,
             TextAlign = ContentAlignment.MiddleCenter, Padding = Padding.Empty, Margin = Padding.Empty
         };
@@ -73,16 +77,58 @@ internal sealed class TranslationPanel : UserControl
         button.Click += (_, _) => click(); Controls.Add(button); return button;
     }
 
+    private Button MakeIconButton(string label, Action click, Action<Graphics, Rectangle, bool> draw)
+    {
+        var button = MakeButton(click);
+        button.AccessibleName = label;
+        button.Paint += (_, e) =>
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            draw(e.Graphics, button.ClientRectangle, button.Enabled);
+        };
+        return button;
+    }
+
+    private Button MakeDropdown(string label, Action click)
+    {
+        var button = MakeButton(click);
+        button.AccessibleName = label;
+        button.TextAlign = ContentAlignment.MiddleLeft;
+        button.Padding = new Padding(Px(8), 0, Px(24), 0);
+        button.AutoEllipsis = true;
+        button.FlatAppearance.BorderSize = 1;
+        button.FlatAppearance.BorderColor = Color.FromArgb(200, 200, 200);
+        button.Paint += (_, e) =>
+        {
+            var x = button.ClientSize.Width - Px(13);
+            var y = button.ClientSize.Height / 2;
+            var arm = Px(4);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using var pen = new Pen(Ink, 1.4f * _scale)
+            {
+                StartCap = LineCap.Round,
+                EndCap = LineCap.Round,
+                LineJoin = LineJoin.Round
+            };
+            e.Graphics.DrawLines(pen, new[] { new Point(x - arm, y - Px(2)),
+                new Point(x, y + Px(2)), new Point(x + arm, y - Px(2)) });
+        };
+        return button;
+    }
+
     protected override void OnLayout(LayoutEventArgs e)
     {
         base.OnLayout(e); if (_status is null) return;
         var x = Px(5); var y = Px(5); var button = Px(34); var gap = Px(2);
-        _source.SetBounds(x, y, Px(142), button); x = _source.Right + gap;
+        var dropdownWidth = Math.Clamp((Width - x * 2 - button * 4 - gap * 4 - Px(26) - Px(84)) / 3, 1, Px(120));
+        _source.SetBounds(x, y, dropdownWidth, button); x = _source.Right + gap;
         _swap.SetBounds(x, y, button, button); x = _swap.Right + gap;
-        _target.SetBounds(x, y, Px(114), button); x = _target.Right + Px(8);
+        _target.SetBounds(x, y, dropdownWidth, button); x = _target.Right + Px(8);
         _view.SetBounds(x, y, button, button); x = _view.Right + Px(12);
         _copy.SetBounds(Width - Px(5) - button, y, button, button);
         _retry.SetBounds(_copy.Left - gap - button, y, button, button);
+        _providerButton.SetBounds(x, y, dropdownWidth, button);
+        x = _providerButton.Right + gap;
         _status.SetBounds(x, y, Math.Max(1, _retry.Left - x - Px(6)), button);
     }
 
@@ -96,9 +142,8 @@ internal sealed class TranslationPanel : UserControl
 
     private void DrawViewIcon(Graphics g, Rectangle rect, bool enabled)
     {
-        g.SmoothingMode = SmoothingMode.AntiAlias;
         var x = rect.Width / 2f; var y = rect.Height / 2f;
-        using var pen = new Pen(enabled ? ShowOriginal ? _accent : Ink : Color.FromArgb(170, 170, 170), 1.5f * _scale);
+        using var pen = MakeIconPen(enabled, ShowOriginal ? _accent : Ink);
         using var path = new GraphicsPath();
         path.AddBezier(x - Px(9), y, x - Px(4), y - Px(9), x + Px(4), y - Px(9), x + Px(9), y);
         path.AddBezier(x + Px(9), y, x + Px(4), y + Px(9), x - Px(4), y + Px(9), x - Px(9), y);
@@ -107,15 +152,51 @@ internal sealed class TranslationPanel : UserControl
 
     private void DrawCopyIcon(Graphics g, Rectangle rect, bool enabled)
     {
-        using var pen = new Pen(enabled ? Ink : Color.FromArgb(170, 170, 170), 1.5f * _scale);
+        using var pen = MakeIconPen(enabled, Ink);
         var x = rect.Width / 2; var y = rect.Height / 2;
         g.DrawRectangle(pen, x - Px(7), y - Px(7), Px(10), Px(10));
         g.DrawRectangle(pen, x - Px(2), y - Px(2), Px(10), Px(10));
     }
 
+    private void DrawSwapIcon(Graphics g, Rectangle rect, bool enabled)
+    {
+        var x = rect.Width / 2f;
+        var y = rect.Height / 2f;
+        var left = x - 8 * _scale;
+        var right = x + 8 * _scale;
+        var upper = y - 4 * _scale;
+        var lower = y + 4 * _scale;
+        var arm = 3.5f * _scale;
+        using var pen = MakeIconPen(enabled, Ink);
+        g.DrawLine(pen, left, upper, right, upper);
+        g.DrawLines(pen, new[] { new PointF(right - arm, upper - arm), new PointF(right, upper), new PointF(right - arm, upper + arm) });
+        g.DrawLine(pen, right, lower, left, lower);
+        g.DrawLines(pen, new[] { new PointF(left + arm, lower - arm), new PointF(left, lower), new PointF(left + arm, lower + arm) });
+    }
+
+    private void DrawRetryIcon(Graphics g, Rectangle rect, bool enabled)
+    {
+        var x = rect.Width / 2f;
+        var y = rect.Height / 2f + .5f * _scale;
+        var radius = 7.5f * _scale;
+        var tip = new PointF(x + radius / MathF.Sqrt(2), y - radius / MathF.Sqrt(2));
+        var arm = 4 * _scale;
+        using var pen = MakeIconPen(enabled, Ink);
+        g.DrawArc(pen, x - radius, y - radius, radius * 2, radius * 2, 30, 285);
+        g.DrawLines(pen, new[] { new PointF(tip.X - arm, tip.Y), tip, new PointF(tip.X, tip.Y - arm) });
+    }
+
+    private Pen MakeIconPen(bool enabled, Color color)
+        => new(enabled ? color : Color.FromArgb(170, 170, 170), 1.5f * _scale)
+        {
+            StartCap = LineCap.Round,
+            EndCap = LineCap.Round,
+            LineJoin = LineJoin.Round
+        };
+
     internal void SelectLanguage(bool source, string code)
     {
-        code = TranslationLanguages.Normalize(code, source, source ? "en" : "zh-CN");
+        code = TranslationLanguages.Normalize(code, source && AllowAutoSource, source ? "en" : "zh-CN");
         if (source ? SourceLanguage == code : TargetLanguage == code) return;
         if (source) SourceLanguage = code; else TargetLanguage = code;
         DetectedLanguage = null; UpdateLanguages(); LanguagesChanged?.Invoke(false);
@@ -130,25 +211,58 @@ internal sealed class TranslationPanel : UserControl
 
     private void UpdateLanguages()
     {
-        _source.Text = (SourceLanguage == "auto" && DetectedLanguage is not null
-            ? "检测到" + TranslationLanguages.Name(DetectedLanguage) : TranslationLanguages.Name(SourceLanguage)) + " ⌄";
-        _target.Text = TranslationLanguages.Name(TargetLanguage) + " ⌄";
+        var sourceLabel = TranslationLanguages.Name(SourceLanguage);
+        if (SourceLanguage == "auto")
+        {
+            if (!AllowAutoSource) sourceLabel = "选择源语言";
+            else if (DetectedLanguage is not null) sourceLabel = "检测到" + TranslationLanguages.Name(DetectedLanguage);
+        }
+        _source.Text = sourceLabel;
+        _target.Text = TranslationLanguages.Name(TargetLanguage);
     }
 
     internal void ShowLanguages(bool source)
     {
-        var menu = SnipMenu.Create(); menu.Font = _contentFont; menu.MaximumSize = new Size(Px(218), Px(284));
-        foreach (var language in TranslationLanguages.All.Where(l => source || l.Code != "auto"))
+        var menu = SnipMenu.Create();
+        foreach (var language in TranslationLanguages.All.Where(l => (source && AllowAutoSource) || l.Code != "auto"))
         {
-            var item = new ToolStripMenuItem(language.Name)
-            {
-                AutoSize = false, Size = new Size(Px(198), Px(34)),
-                Checked = language.Code == (source ? SourceLanguage : TargetLanguage), Padding = Padding.Empty
-            };
-            item.Click += (_, _) => SelectLanguage(source, language.Code); menu.Items.Add(item);
+            menu.Items.Add(SnipMenu.Item(language.Name, () => SelectLanguage(source, language.Code),
+                check: language.Code == (source ? SourceLanguage : TargetLanguage)));
         }
-        _menus.Add(menu); MenuOpening?.Invoke(menu);
-        var owner = source ? _source : _target; menu.Show(owner, new Point(0, owner.Height + Px(3)));
+        OpenDropdown(source ? _source : _target, menu);
+    }
+
+    public void SetProvider(TranslationProviderKind provider)
+    {
+        Provider = provider;
+        _providerButton.Text = TranslationProviders.Label(provider);
+        DetectedLanguage = null;
+        UpdateLanguages();
+    }
+
+    private void ShowProviders()
+    {
+        var menu = SnipMenu.Create();
+        foreach (var (kind, label) in TranslationProviders.Choices)
+            menu.Items.Add(SnipMenu.Item(label, () => ProviderRequested?.Invoke(kind), check: Provider == kind));
+        OpenDropdown(_providerButton, menu);
+    }
+
+    private void OpenDropdown(Button owner, ContextMenuStrip menu)
+    {
+        var width = Px(168);
+        menu.Font = _contentFont;
+        menu.MinimumSize = new Size(width, 0);
+        menu.MaximumSize = new Size(width, Px(284));
+        foreach (ToolStripItem item in menu.Items)
+        {
+            item.AutoSize = false;
+            item.Size = new Size(width - menu.Padding.Horizontal, Px(32));
+            item.Padding = Padding.Empty;
+        }
+        _menus.Add(menu);
+        MenuOpening?.Invoke(menu);
+        menu.Show(owner, new Point(0, owner.Height + Px(3)));
     }
 
     public void SetOriginal(string text) => _originalText = text;
@@ -172,9 +286,9 @@ internal sealed class TranslationPanel : UserControl
         _status.ForeColor = Color.FromArgb(178, 48, 42); SetStatus(error);
         _tips.SetToolTip(_retry, "重试翻译"); RefreshView();
     }
-    private void SetStatus(string status)
+    internal void SetStatus(string status)
     {
-        _status.Text = "Google · " + status; _tips.SetToolTip(_status, _status.Text);
+        _status.Text = status; _tips.SetToolTip(_status, status);
     }
     internal void ToggleView()
     {

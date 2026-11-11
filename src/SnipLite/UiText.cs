@@ -4,6 +4,8 @@ internal static class UiText
 {
     private static readonly Dictionary<string, string> English = new()
     {
+        ["翻译服务"]="Translation service", ["配置微软密钥"]="Microsoft API key",
+        ["必应网页翻译"]="Bing Translator",
         ["识别引擎"]="OCR engine", ["本地增强（中英自动识别）"]="Local enhanced (Chinese / English)", ["Windows 系统识别"]="Windows OCR", ["系统识别语言"]="Windows OCR language",
         ["GitHub 项目"]="GitHub project", ["问题反馈"]="Report an issue", ["开源许可证"]="License", ["发布版本"]="Releases",
         ["常规"]="General", ["界面"]="UI", ["截屏"]="Capture", ["贴图"]="Pin", ["输出"]="Output", ["控制"]="Control", ["更新"]="Update", ["关于"]="About",
