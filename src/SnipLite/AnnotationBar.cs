@@ -46,10 +46,10 @@ internal sealed class AnnotationBar
     private const int Swatch = 17;
     private const int Group = 9;
 
-    private static readonly Color BarBack = Color.FromArgb(246, 246, 246);
-    private static readonly Color IconColor = Color.FromArgb(62, 62, 62);
-    private static readonly Color Divider = Color.FromArgb(200, 200, 200);
-    private static readonly Color SwatchBorder = Color.FromArgb(160, 120, 120, 120);
+    private static Color BarBack => AppTheme.Current.Card;
+    private static Color IconColor => AppTheme.Current.Text;
+    private static Color Divider => AppTheme.Current.Border;
+    private static Color SwatchBorder => AppTheme.Current.Border;
 
     /// <summary>Snipaste's default theme blue, also the fallback accent colour.</summary>
     public static readonly Color DefaultAccent = Color.FromArgb(0, 145, 234);
@@ -364,6 +364,7 @@ internal sealed class AnnotationBar
     public void Render(Graphics g)
     {
         if (_items.Count == 0) return;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
 
         DrawBar(g, _main);
 
@@ -372,8 +373,7 @@ internal sealed class AnnotationBar
 
         if (_message.Height > 0)
         {
-            using var back = new SolidBrush(Color.FromArgb(250, 251, 253)); g.FillRectangle(back, _message);
-            using var edge = new Pen(Color.FromArgb(205, 215, 225)); g.DrawRectangle(edge, _message.X, _message.Y, _message.Width - 1, _message.Height - 1);
+            DrawBar(g, _message);
             using var font = new Font("Microsoft YaHei UI", 12f * Scale, GraphicsUnit.Pixel);
             var text = Rectangle.Inflate(_message, -Px(10), 0);
             if (ResultCopyVisible) text.Width -= Px(64);
@@ -385,9 +385,11 @@ internal sealed class AnnotationBar
         {
             if (id is "resultcopy" or "ocrtextcopy")
             {
-                using var back = new SolidBrush(Accent); g.FillRectangle(back, rect);
+                using var back = new SolidBrush(AppTheme.AdaptAccent(Accent));
+                using var path = FluentDrawing.Rounded(Rectangle.Inflate(rect, -Px(2), -Px(2)), Px(5));
+                g.FillPath(back, path);
                 using var font = new Font("Microsoft YaHei UI", 11 * Scale, GraphicsUnit.Pixel);
-                TextRenderer.DrawText(g, ResultCopied ? "已复制" : id == "ocrtextcopy" ? "复制文字" : "复制", font, rect, Color.White,
+                TextRenderer.DrawText(g, ResultCopied ? "已复制" : id == "ocrtextcopy" ? "复制文字" : "复制", font, rect, AppTheme.Current.OnAccent,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
                 continue;
             }
@@ -418,8 +420,9 @@ internal sealed class AnnotationBar
                     "fontsize" => FontSize.ToString("0.#"),
                     _ => ArrowStyle switch { ArrowStyle.Line => "―", ArrowStyle.Double => "↔", ArrowStyle.Open => "➝", ArrowStyle.Outline => "⇨", _ => "➜" }
                 };
-                using var border = new Pen(Color.FromArgb(195, 195, 195));
-                g.DrawRectangle(border, rect.X, rect.Y, rect.Width - 1, rect.Height - 1);
+                using var border = new Pen(Divider);
+                using var field = FluentDrawing.Rounded(Rectangle.Inflate(rect, -1, -1), Px(4));
+                g.DrawPath(border, field);
                 using var font = new Font("Microsoft YaHei UI", 12 * Scale, GraphicsUnit.Pixel);
                 var textRect = Rectangle.Inflate(rect, -Px(6), 0);
                 textRect.Width -= Px(12);
@@ -429,7 +432,7 @@ internal sealed class AnnotationBar
                     using var dummy = new Bitmap(1, 1); arrow.Render(g, dummy);
                 }
                 else TextRenderer.DrawText(g, label, font, textRect, IconColor, TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
-                TextRenderer.DrawText(g, "▾", font, new Rectangle(rect.Right - Px(16), rect.Y, Px(14), rect.Height), IconColor, TextFormatFlags.VerticalCenter);
+                FluentIcons.Draw(g, "chevron", new Rectangle(rect.Right - Px(17), rect.Top + (rect.Height - Px(14)) / 2, Px(14), Px(14)), IconColor);
                 continue;
             }
             if (id is "opacity" or "strength") { DrawSlider(g, rect, id); continue; }
@@ -462,12 +465,12 @@ internal sealed class AnnotationBar
 
             if (active)
             {
-                using var fill = new SolidBrush(Accent);
-
-                if (_options.Contains(rect.Location))
-                    g.FillRectangle(fill, rect);
-                else
-                    g.FillRectangle(fill, rect.X, _main.Top + 1, rect.Width, _main.Height - 2);
+                var selected = Rectangle.Inflate(rect, -Px(2), -Px(2));
+                using var fill = new SolidBrush(AppTheme.Current.AccentSoft);
+                using var path = FluentDrawing.Rounded(selected, Px(5));
+                g.FillPath(fill, path);
+                using var indicator = new Pen(AppTheme.AdaptAccent(Accent), Math.Max(2, 2 * Scale)) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+                g.DrawLine(indicator, rect.Left + rect.Width / 2f - Px(5), selected.Bottom - Px(1), rect.Left + rect.Width / 2f + Px(5), selected.Bottom - Px(1));
             }
 
             DrawIcon(g, id, rect, active);
@@ -490,11 +493,12 @@ internal sealed class AnnotationBar
 
     private void DrawBar(Graphics g, Rectangle rect)
     {
+        using var path = FluentDrawing.Rounded(new RectangleF(rect.X + .5f, rect.Y + .5f, rect.Width - 1, rect.Height - 1), Px(8));
         using (var back = new SolidBrush(BarBack))
-            g.FillRectangle(back, rect);
+            g.FillPath(back, path);
 
-        using var border = new Pen(Accent, 1f);
-        g.DrawRectangle(border, rect.X, rect.Y, rect.Width - 1, rect.Height - 1);
+        using var border = new Pen(Divider, 1f);
+        g.DrawPath(border, path);
     }
 
     // -------------------------------------------------------------- options
@@ -635,8 +639,14 @@ internal sealed class AnnotationBar
         var s = Scale;
         var cx = rect.X + rect.Width / 2f;
         var cy = rect.Y + rect.Height / 2f;
-        var color = active ? Color.White : id == "undo" && !CanUndo || id == "redo" && !CanRedo
-            ? Color.FromArgb(170, 170, 170) : IconColor;
+        var color = active ? AppTheme.AdaptAccent(Accent) : id == "undo" && !CanUndo || id == "redo" && !CanRedo
+            ? AppTheme.Current.Disabled : IconColor;
+
+        if (FluentIcons.Supports(id))
+        {
+            FluentIcons.Draw(g, id, new RectangleF(cx - 10 * s, cy - 10 * s, 20 * s, 20 * s), color);
+            return;
+        }
 
         using var pen = new Pen(color, 1.7f * s)
         {

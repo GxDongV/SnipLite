@@ -10,9 +10,10 @@
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>../../logo/SnipLite.ico</ApplicationIcon>
     <AssemblyName>SnipLite</AssemblyName>
     <RootNamespace>SnipLite</RootNamespace>
-    <Version>0.3.9</Version>
+    <Version>0.3.10</Version>
     <Description>A Windows screenshot and pinning tool with local OCR and barcode recognition.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/GxDongV/SnipLite</RepositoryUrl>
@@ -23,6 +24,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="SnipLite.SelfTest" />
+    <EmbeddedResource Include="../../logo/SnipLite.ico" LogicalName="SnipLite.AppIcon.ico" />
     <PackageReference Include="Sdcb.SimdPaddleOCR" Version="2.0.0" />
     <PackageReference Include="Sdcb.SimdPaddleOCR.Models.ChineseV6Small" Version="1.0.0" />
     <PackageReference Include="ZXing.Net.Bindings.Windows.Compatibility" Version="0.16.17" />

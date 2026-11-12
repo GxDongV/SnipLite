@@ -32,7 +32,11 @@ internal sealed class Toast : Form
 
         _timer = new System.Windows.Forms.Timer { Interval = milliseconds };
         _timer.Tick += (_, _) => Close();
+        ApplyTheme();
+        AppTheme.Changed += ApplyTheme;
     }
+
+    private void ApplyTheme() { AppTheme.Apply(this); AppTheme.ApplyWindow(this); }
 
     /// <summary>Toasts must never steal keyboard focus from a pin or the snip overlay.</summary>
     protected override bool ShowWithoutActivation => true;
@@ -51,6 +55,7 @@ internal sealed class Toast : Form
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
+        AppTheme.ApplyWindow(this);
 
         var area = Screen.FromPoint(Win32.CursorPosition()).WorkingArea;
         Location = new Point(area.Right - Width - 24, area.Bottom - Height - 24);
@@ -61,7 +66,7 @@ internal sealed class Toast : Form
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
-        using var border = new Pen(Color.FromArgb(90, 0, 174, 255));
+        using var border = new Pen(AppTheme.Current.Border);
         e.Graphics.DrawRectangle(border, 0, 0, Width - 1, Height - 1);
     }
 
@@ -69,6 +74,7 @@ internal sealed class Toast : Form
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
+        AppTheme.Changed -= ApplyTheme;
         _timer.Stop();
         _timer.Dispose();
         if (ReferenceEquals(_current, this)) _current = null;

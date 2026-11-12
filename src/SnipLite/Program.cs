@@ -6,6 +6,8 @@ internal static class Program
     private static void Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
+        Application.SetColorMode(SystemColorMode.System);
+        AppTheme.Refresh();
 
         if (args.Any(arg => arg.StartsWith("--startup-admin:")))
         {

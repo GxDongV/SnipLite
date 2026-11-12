@@ -4,6 +4,9 @@ internal static class UiText
 {
     private static readonly Dictionary<string, string> English = new()
     {
+        ["首选项"]="Preferences", ["语言与识别"]="Language and recognition", ["启动与运行"]="Startup and behavior", ["配置与日志"]="Configuration and logs",
+        ["跟随 Windows · 浅色"]="Windows theme · Light", ["跟随 Windows · 深色"]="Windows theme · Dark", ["跟随 Windows · 高对比度"]="Windows theme · High contrast",
+        ["界面与图标跟随 Windows 浅色 / 深色模式，切换后即时生效。"]="The interface and icons follow the Windows light / dark theme automatically.",
         ["翻译服务"]="Translation service", ["配置微软密钥"]="Microsoft API key",
         ["必应网页翻译"]="Bing Translator",
         ["识别引擎"]="OCR engine", ["本地增强（中英自动识别）"]="Local enhanced (Chinese / English)", ["Windows 系统识别"]="Windows OCR", ["系统识别语言"]="Windows OCR language",

@@ -5,9 +5,9 @@ namespace SnipLite;
 /// <summary>A complete, selectable result. Copy is always an explicit action.</summary>
 internal sealed class RecognitionResultForm : Form
 {
-    private static readonly Color Ink = Color.FromArgb(30, 38, 50);
-    private static readonly Color Muted = Color.FromArgb(116, 125, 139);
-    private static readonly Color Accent = Color.FromArgb(0, 128, 220);
+    private static Color Ink => AppTheme.Current.Text;
+    private static Color Muted => AppTheme.Current.Muted;
+    private static Color Accent => AppTheme.Current.Accent;
     private readonly TextBox _content;
     private readonly Label _status;
     private readonly Button _copy;
@@ -49,8 +49,10 @@ internal sealed class RecognitionResultForm : Form
         _card = new Panel { BackColor = Color.FromArgb(247, 249, 252) };
         _card.Paint += (_, e) =>
         {
-            using var border = new Pen(Color.FromArgb(230, 235, 241));
-            e.Graphics.DrawRectangle(border, 0, 0, _card.Width - 1, _card.Height - 1);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using var border = new Pen(AppTheme.Current.Border);
+            using var path = FluentDrawing.Rounded(new RectangleF(.5f, .5f, _card.Width - 1, _card.Height - 1), Px(8));
+            e.Graphics.DrawPath(border, path);
         };
         _kind = new Label { Text = isLink ? "链接" : "文本内容", ForeColor = Muted };
         _count = new Label { Text = $"{new System.Globalization.StringInfo(result).LengthInTextElements:N0} 字符", ForeColor = Muted, TextAlign = ContentAlignment.TopRight };
@@ -76,6 +78,26 @@ internal sealed class RecognitionResultForm : Form
         CancelButton = _close;
         ActiveControl = _copy;
         ClientSize = new Size(560, 340);
+        ApplyTheme();
+        AppTheme.Changed += ApplyTheme;
+    }
+
+    private void ApplyTheme()
+    {
+        AppTheme.Apply(this);
+        BackColor = _header.BackColor = AppTheme.Current.Window;
+        _card.BackColor = _content.BackColor = AppTheme.Current.Card;
+        _icon.BackColor = AppTheme.Current.AccentSoft;
+        _subtitle.ForeColor = _kind.ForeColor = _count.ForeColor = _status.ForeColor = Muted;
+        _copy.BackColor = Accent; _copy.ForeColor = AppTheme.Current.OnAccent;
+        AppTheme.ApplyWindow(this);
+    }
+
+    protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); AppTheme.ApplyWindow(this); }
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) AppTheme.Changed -= ApplyTheme;
+        base.Dispose(disposing);
     }
 
     private int Px(int value) => (int)Math.Round(value * DeviceDpi / 96f);
@@ -121,7 +143,7 @@ internal sealed class RecognitionResultForm : Form
 
     private static Button ActionButton(string text, bool primary)
     {
-        var button = new Button
+        var button = new FluentButton
         {
             Text = text, FlatStyle = FlatStyle.Flat,
             BackColor = primary ? Accent : Color.White,
@@ -153,17 +175,6 @@ internal sealed class RecognitionResultForm : Form
 
     private void DrawQrIcon(object? sender, PaintEventArgs e)
     {
-        var g = e.Graphics;
-        g.SmoothingMode = SmoothingMode.None;
-        using var pen = new Pen(Accent, Px(2));
-        using var brush = new SolidBrush(Accent);
-        foreach (var point in new[] { new Point(12, 12), new Point(28, 12), new Point(12, 28) })
-        {
-            g.DrawRectangle(pen, Px(point.X), Px(point.Y), Px(8), Px(8));
-            g.FillRectangle(brush, Px(point.X + 3), Px(point.Y + 3), Px(2), Px(2));
-        }
-        g.FillRectangle(brush, Px(27), Px(27), Px(4), Px(4));
-        g.FillRectangle(brush, Px(33), Px(27), Px(4), Px(10));
-        g.FillRectangle(brush, Px(27), Px(33), Px(4), Px(4));
+        FluentIcons.Draw(e.Graphics, "qr", new Rectangle(Px(10), Px(10), Px(28), Px(28)), Accent);
     }
 }

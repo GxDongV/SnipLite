@@ -17,6 +17,7 @@ MinVersion=10.0.19041
 OutputDir={#ReleaseDir}
 OutputBaseFilename=SnipLite-{#AppVersion}-win-x64-setup
 LicenseFile={#ProjectRoot}\LICENSE
+SetupIconFile={#ProjectRoot}\logo\SnipLite.ico
 UninstallDisplayIcon={app}\SnipLite.exe
 Compression=lzma2
 SolidCompression=yes

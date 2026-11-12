@@ -23,5 +23,11 @@ internal sealed class CaptureRegionForm : Form
         var ok = new Button { Text = "开始截图", DialogResult = DialogResult.OK, Bounds = new Rectangle(110, 170, 95, 30) };
         var cancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel, Bounds = new Rectangle(215, 170, 75, 30) };
         Controls.AddRange(new Control[] { ok, cancel }); AcceptButton = ok; CancelButton = cancel;
+        Icon = AppIcon.Window;
+        AppTheme.Apply(this);
+        AppTheme.Changed += ApplyTheme;
     }
+    private void ApplyTheme() { AppTheme.Apply(this); AppTheme.ApplyWindow(this); }
+    protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); AppTheme.ApplyWindow(this); }
+    protected override void Dispose(bool disposing) { if (disposing) AppTheme.Changed -= ApplyTheme; base.Dispose(disposing); }
 }

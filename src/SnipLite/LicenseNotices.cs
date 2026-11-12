@@ -26,6 +26,11 @@ internal static class LicenseNotices
         };
         window.Controls.Add(text); window.Controls.Add(picker);
         if (names.Length > 0) picker.SelectedIndex = 0;
-        window.ShowDialog(owner);
+        void ApplyTheme() { AppTheme.Apply(window); AppTheme.ApplyWindow(window); }
+        ApplyTheme();
+        window.HandleCreated += (_, _) => AppTheme.ApplyWindow(window);
+        AppTheme.Changed += ApplyTheme;
+        try { window.ShowDialog(owner); }
+        finally { AppTheme.Changed -= ApplyTheme; }
     }
 }

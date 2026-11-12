@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 80 80" fill="none">
+  <title>SnipLite</title>
+  <desc>Blue capture corners and a green diagonal stroke, traced from the original hand-drawn logo. Transparent background.</desc>
+  <polyline points="25,5 5,5 5,25" stroke="#1764DD" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="55,5 75,5 75,25" stroke="#1764DD" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="5,55 5,75 25,75" stroke="#1764DD" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="55,75 75,75 75,55" stroke="#1764DD" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="29,49 49,29" stroke="#087A61" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

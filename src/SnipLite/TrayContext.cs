@@ -5,6 +5,7 @@ internal sealed class TrayContext : ApplicationContext
     private readonly AppSettings _settings;
     private readonly NotifyIcon _tray;
     private readonly HotkeyHost _hotkeys = new();
+    private readonly ThemeMonitor _themeMonitor = new();
     private readonly CaptureHistory _history = new();
     private CaptureForm? _overlay;
     private PreferencesForm? _prefs;
@@ -17,6 +18,7 @@ internal sealed class TrayContext : ApplicationContext
     {
         _settings = AppSettings.Load();
         _tray = new NotifyIcon { Icon = TrayIcons.Create(_settings), Text = "SnipLite", Visible = true };
+        AppTheme.Changed += RefreshTheme;
         _tray.DoubleClick += (_, _) => StartCapture(CaptureMode.Snip);
         ApplySettings();
         void Once(Action action)
@@ -246,8 +248,17 @@ internal sealed class TrayContext : ApplicationContext
     }
     private void Exit()
     {
+        AppTheme.Changed -= RefreshTheme;
+        _themeMonitor.Dispose();
         _tray.Visible = false; var icon = _tray.Icon; _tray.Dispose(); icon?.Dispose();
         _overlay?.Close(); _prefs?.Close(); _hotkeys.Dispose(); PinForm.CloseAllForExit(); ExitThread();
+    }
+    private void RefreshTheme()
+    {
+        var old = _tray.Icon;
+        _tray.Icon = TrayIcons.Create(_settings);
+        old?.Dispose();
+        _overlay?.Invalidate();
     }
     [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern uint GetClipboardSequenceNumber();
 }

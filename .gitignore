@@ -1,5 +1,7 @@
 # Local references and development notes
 /.local/
+/video/
+/logo/SnipLite_*.png
 
 # Build and publish output
 **/bin/

@@ -3,19 +3,16 @@ using System.Drawing.Drawing2D;
 namespace SnipLite;
 
 /// <summary>
-/// Snipaste's menus are plain light-grey strips with black text, no icons and a
-/// one pixel border. The default WinForms menu (grey gradient, icon gutter,
-/// blue selection) looks nothing like it, so both the tray menu and every
-/// context menu use this renderer.
+/// Theme-aware rounded menus shared by the tray, setting pickers and capture tools.
 /// </summary>
 internal sealed class SnipMenuRenderer : ToolStripProfessionalRenderer
 {
-    internal static readonly Color Back = Color.FromArgb(0xF6, 0xF6, 0xF6);
-    internal static readonly Color Hover = Color.FromArgb(0xD9, 0xEC, 0xF9);
+    internal static Color Back => AppTheme.Current.Card;
+    internal static Color Hover => AppTheme.Current.Hover;
 
     public SnipMenuRenderer() : base(new SnipMenuColors())
     {
-        RoundedEdges = false;
+        RoundedEdges = true;
     }
 
     /// <summary>
@@ -24,19 +21,24 @@ internal sealed class SnipMenuRenderer : ToolStripProfessionalRenderer
     /// </summary>
     protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
     {
-        if (!e.Item.Selected || !e.Item.Enabled)
+        var g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        using (var background = new SolidBrush(Back)) g.FillRectangle(background, new Rectangle(Point.Empty, e.Item.Size));
+        if (e.Item.Selected && e.Item.Enabled)
         {
-            base.OnRenderMenuItemBackground(e);
-            return;
+            using var path = FluentDrawing.Rounded(new RectangleF(2, 1, e.Item.Width - 4, e.Item.Height - 2), 5 * (e.ToolStrip?.DeviceDpi ?? 96) / 96f);
+            using var brush = new SolidBrush(Hover); g.FillPath(brush, path);
         }
-
-        using var brush = new SolidBrush(Hover);
-        e.Graphics.FillRectangle(brush, new Rectangle(Point.Empty, e.Item.Size));
+        if (e.Item is ToolStripMenuItem { Checked: false, Tag: string icon } && icon.StartsWith("fluent:", StringComparison.Ordinal))
+        {
+            var size = 16 * (e.ToolStrip?.DeviceDpi ?? 96) / 96f;
+            FluentIcons.Draw(g, icon[7..], new RectangleF(8, (e.Item.Height - size) / 2, size, size), AppTheme.Current.Text);
+        }
     }
 
     protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
     {
-        e.TextColor = e.Item.Enabled ? Color.FromArgb(26, 26, 26) : Color.FromArgb(160, 160, 160);
+        e.TextColor = e.Item.Enabled ? AppTheme.Current.Text : AppTheme.Current.Disabled;
         e.TextRectangle = new Rectangle(e.TextRectangle.X, 0, e.TextRectangle.Width, e.Item.Height);
         e.TextFormat = (e.TextFormat & ~TextFormatFlags.Bottom) | TextFormatFlags.VerticalCenter;
         base.OnRenderItemText(e);
@@ -57,7 +59,7 @@ internal sealed class SnipMenuRenderer : ToolStripProfessionalRenderer
     {
         g.SmoothingMode = SmoothingMode.AntiAlias;
 
-        using var pen = new Pen(Color.FromArgb(0x1A, 0x1A, 0x1A), 1.6f);
+        using var pen = new Pen(AppTheme.Current.Accent, 1.6f);
         g.DrawLines(pen, new[]
         {
             new Point(x - arm, y),
@@ -68,21 +70,29 @@ internal sealed class SnipMenuRenderer : ToolStripProfessionalRenderer
 
     protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
     {
-        using var pen = new Pen(Color.FromArgb(0xE2, 0xE2, 0xE2), 1f);
+        using var pen = new Pen(AppTheme.Current.Border, 1f);
         var y = e.Item.Height / 2;
         e.Graphics.DrawLine(pen, 8, y, e.Item.Width - 8, y);
     }
 
     protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
     {
-        using var pen = new Pen(Color.FromArgb(0xC8, 0xC8, 0xC8), 1f);
+        using var pen = new Pen(AppTheme.Current.Border, 1f);
         var bounds = new Rectangle(Point.Empty, e.ToolStrip.Size);
-        e.Graphics.DrawRectangle(pen, 0, 0, bounds.Width - 1, bounds.Height - 1);
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        using var path = FluentDrawing.Rounded(new RectangleF(.5f, .5f, bounds.Width - 1, bounds.Height - 1), 7);
+        e.Graphics.DrawPath(pen, path);
+    }
+
+    protected override void OnRenderArrow(ToolStripArrowRenderEventArgs e)
+    {
+        e.ArrowColor = AppTheme.Current.Text;
+        base.OnRenderArrow(e);
     }
 
     private sealed class SnipMenuColors : ProfessionalColorTable
     {
-        private static readonly Color Border = Color.FromArgb(0xC8, 0xC8, 0xC8);
+        private static Color Border => AppTheme.Current.Border;
 
         public override Color ToolStripDropDownBackground => Back;
         public override Color ImageMarginGradientBegin => Back;
@@ -96,8 +106,8 @@ internal sealed class SnipMenuRenderer : ToolStripProfessionalRenderer
         public override Color MenuItemPressedGradientBegin => Hover;
         public override Color MenuItemPressedGradientMiddle => Hover;
         public override Color MenuItemPressedGradientEnd => Hover;
-        public override Color SeparatorDark => Color.FromArgb(0xE2, 0xE2, 0xE2);
-        public override Color SeparatorLight => Color.FromArgb(0xF0, 0xF0, 0xF0);
+        public override Color SeparatorDark => Border;
+        public override Color SeparatorLight => Back;
         public override Color ButtonSelectedHighlight => Hover;
         public override Color ButtonSelectedHighlightBorder => Border;
     }
@@ -110,14 +120,18 @@ internal static class SnipMenu
         var menu = new ContextMenuStrip
         {
             Font = new Font("Microsoft YaHei UI", 9f),
-            BackColor = Color.FromArgb(0xF6, 0xF6, 0xF6),
+            BackColor = SnipMenuRenderer.Back,
+            ForeColor = AppTheme.Current.Text,
             ShowImageMargin = false,
             ShowCheckMargin = true,
             DropShadowEnabled = true,
             Renderer = new SnipMenuRenderer(),
-            Padding = new Padding(2)
+            Padding = new Padding(4)
         };
-
+        void ApplyTheme() { if (!menu.IsDisposed) { menu.BackColor = SnipMenuRenderer.Back; menu.ForeColor = AppTheme.Current.Text; menu.Invalidate(true); } }
+        AppTheme.Changed += ApplyTheme;
+        menu.Disposed += (_, _) => AppTheme.Changed -= ApplyTheme;
+        menu.Opening += (_, _) => ApplyTheme();
         return menu;
     }
 
@@ -128,6 +142,7 @@ internal static class SnipMenu
             CheckOnClick = false,
             Checked = check,
             TextAlign = ContentAlignment.MiddleLeft,
+            Tag = "fluent:" + FluentIcons.ForLabel(text),
             Padding = new Padding(0, 5, 0, 5)
         };
 

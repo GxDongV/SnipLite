@@ -3,43 +3,34 @@ using System.Drawing.Drawing2D;
 namespace SnipLite;
 
 /// <summary>
-/// Snipaste-shaped preferences: a tab strip sitting on a bordered white page,
-/// a label column followed by its controls, and every option bound straight to
-/// <see cref="AppSettings"/> and applied immediately.
-///
-/// Layout uses one small token set (4 px grid, one label column, one control
-/// height) so pages stay aligned without per-page tweaking.
+/// Windows 11-style navigation and setting cards, bound directly to AppSettings.
 /// </summary>
 internal sealed partial class PreferencesForm : Form
 {
     // ---- design tokens (96 dpi units) -------------------------------------
-    private const int WinW = 680;
-    private const int WinH = 560;
-    private const int Gutter = 8;           // window gutter around the page
-    private const int StripH = 32;          // tab height
-    private const int StripY = 10;          // tab top
+    private const int WinW = 960;
+    private const int WinH = 720;
+    private const int SidebarW = 182;
     private const int FooterH = 56;         // footer zone below the page
-    private const int PagePad = 20;         // content inset inside the page
-    private const int LabelW = 170;          // label column
-    private const int ControlGap = 14;      // between label and control / controls
-    private const int RowH = 30;            // row pitch
-    private const int CheckH = 32;          // checkbox pitch
+    private const int PagePad = 6;
+    private const int LabelW = 244;
+    private const int ControlGap = 12;
+    private const int RowH = 58;
+    private const int CheckH = 54;
     private const int CaptionH = 24;        // group caption
     private const int SectionGap = 22;      // between groups
     private const int HintH = 24;           // hint line
-    private const int ControlH = 28;
+    private const int ControlH = 32;
 
-    private static readonly Color Page = Color.FromArgb(0xFF, 0xFF, 0xFF);
-    private static readonly Color Chrome = Color.FromArgb(0xFA, 0xFA, 0xFA);
-    private static readonly Color TabIdle = Color.FromArgb(0xF1, 0xF1, 0xF1);
-    private static readonly Color TabHover = Color.FromArgb(0xF8, 0xF8, 0xF8);
-    private static readonly Color Line = Color.FromArgb(0xD2, 0xD2, 0xD2);
-    private static readonly Color Hair = Color.FromArgb(0xE8, 0xE8, 0xE8);
-    private static readonly Color Ink = Color.FromArgb(0x1A, 0x1A, 0x1A);
-    private static readonly Color Muted = Color.FromArgb(0x5F, 0x5F, 0x5F);
-    private static readonly Color Hint = Color.FromArgb(0x7A, 0x7A, 0x7A);
-    private static readonly Color Field = Color.FromArgb(0xF6, 0xF6, 0xF6);
-    private static readonly Color FieldEdge = Color.FromArgb(0xC8, 0xC8, 0xC8);
+    private static Color Page => AppTheme.Current.Window;
+    private static Color Chrome => AppTheme.Current.Window;
+    private static Color Line => AppTheme.Current.Border;
+    private static Color Ink => AppTheme.Current.Text;
+    private static Color Muted => AppTheme.Current.Muted;
+    private static Color Hint => AppTheme.Current.Muted;
+    private static Color Field => AppTheme.Current.Field;
+    private static Color FieldEdge => AppTheme.Current.Border;
+    private static readonly string[] TabIcons = { "settings", "palette", "capture", "pin", "output", "keyboard", "update", "about" };
 
     private readonly string[] _tabs = { "常规", "界面", "截屏", "贴图", "输出", "控制", "更新", "关于" };
     private readonly List<(Rectangle Rect, int Index)> _tabRects = new();
@@ -50,7 +41,7 @@ internal sealed partial class PreferencesForm : Form
         public BufferedPage() { DoubleBuffered = true; ResizeRedraw = true; }
     }
     private readonly Panel _page = new BufferedPage();
-    private readonly Button _reset = new();
+    private readonly Button _reset = new FluentButton();
 
     private float _ui = 1f;
     private int _selected;
@@ -74,6 +65,7 @@ internal sealed partial class PreferencesForm : Form
         _startTab = startTab;
 
         Text = "SnipLite 首选项";
+        Icon = AppIcon.Window;
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         MinimizeBox = false;
@@ -95,6 +87,26 @@ internal sealed partial class PreferencesForm : Form
 
         Controls.Add(_page);
         Controls.Add(_reset);
+        AppTheme.Changed += ApplyTheme;
+    }
+
+    private void ApplyTheme()
+    {
+        if (IsDisposed) return;
+        AppTheme.Apply(this);
+        AppTheme.ApplyWindow(this);
+    }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        AppTheme.ApplyWindow(this);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) AppTheme.Changed -= ApplyTheme;
+        base.Dispose(disposing);
     }
 
     // ---------------------------------------------------------------- layout
@@ -102,22 +114,25 @@ internal sealed partial class PreferencesForm : Form
     private int Px(int value) => (int)Math.Round(value * _ui);
 
     private Rectangle PageRect() => new(
-        Px(Gutter),
-        Px(StripY + StripH),
-        ClientSize.Width - Px(Gutter * 2),
-        ClientSize.Height - Px(StripY + StripH) - Px(FooterH));
+        Px(SidebarW + 22),
+        Px(86),
+        ClientSize.Width - Px(SidebarW + 44),
+        ClientSize.Height - Px(86 + FooterH));
 
     protected override void OnLoad(EventArgs e)
     {
         base.OnLoad(e);
 
         _ui = DeviceDpi / 96f;
+        StyleButton(_reset, UiText.T("恢复默认", _s.DisplayLanguage));
 
-        ClientSize = new Size(Px(WinW), Px(WinH));
+        var area = Screen.FromControl(this).WorkingArea;
+        ClientSize = new Size(Math.Min(Px(WinW), area.Width - Px(32)), Math.Min(Px(WinH), area.Height - Px(64)));
         PlaceChrome();
 
         _ready = true;
         ShowTab(Math.Clamp(_startTab, 0, _tabs.Length - 1));
+        ApplyTheme();
     }
 
     protected override void OnShown(EventArgs e)
@@ -135,7 +150,7 @@ internal sealed partial class PreferencesForm : Form
 
         var footer = ClientSize.Height - Px(FooterH);
         _reset.Bounds = new Rectangle(
-            ClientSize.Width - Px(Gutter + PagePad) - _reset.Width,
+            ClientSize.Width - Px(28) - _reset.Width,
             footer + Px(8),
             _reset.Width,
             Px(32));
@@ -160,6 +175,13 @@ internal sealed partial class PreferencesForm : Form
             return;
         }
 
+        if (e.Control && e.KeyCode == Keys.Tab)
+        {
+            SelectTab((_selected + (e.Shift ? _tabs.Length - 1 : 1)) % _tabs.Length);
+            e.Handled = e.SuppressKeyPress = true;
+            return;
+        }
+
         base.OnKeyDown(e);
     }
 
@@ -172,15 +194,17 @@ internal sealed partial class PreferencesForm : Form
         if (!_ready) return;
 
         var g = e.Graphics;
+        var palette = AppTheme.Current;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
         using (var chrome = new SolidBrush(Chrome)) g.FillRectangle(chrome, e.ClipRectangle);
-
-        var page = PageRect();
-
-        using (var back = new SolidBrush(Page))
-            g.FillRectangle(back, page);
-
-        using (var border = new Pen(Line))
-            g.DrawRectangle(border, page.X, page.Y, page.Width - 1, page.Height - 1);
+        using (var sidebar = new SolidBrush(palette.Sidebar)) g.FillRectangle(sidebar, 0, 0, Px(SidebarW), ClientSize.Height);
+        FluentIcons.Draw(g, "capture", new Rectangle(Px(23), Px(26), Px(26), Px(26)), palette.Accent);
+        using var brandFont = new Font(Font.FontFamily, Font.Size + 3, FontStyle.Bold);
+        TextRenderer.DrawText(g, "SnipLite", brandFont, new Rectangle(Px(58), Px(25), Px(116), Px(30)), Ink, TextFormatFlags.VerticalCenter);
+        TextRenderer.DrawText(g, UiText.T("首选项", _s.DisplayLanguage), Font, new Rectangle(Px(24), Px(65), Px(136), Px(24)), Muted);
+        using var headingFont = new Font(Font.FontFamily, Font.Size + 10, FontStyle.Bold);
+        TextRenderer.DrawText(g, UiText.T(_tabs[_selected], _s.DisplayLanguage), headingFont,
+            new Rectangle(PageRect().X + Px(PagePad), Px(20), PageRect().Width, Px(44)), Ink, TextFormatFlags.VerticalCenter);
 
         if (_tabRects.Count == 0) LayoutTabs(g);
 
@@ -188,52 +212,39 @@ internal sealed partial class PreferencesForm : Form
         {
             var active = index == _selected;
 
-            // The active tab merges into the page: one extra pixel of white
-            // paints over the page's top border.
-            var tab = active
-                ? new Rectangle(rect.X, rect.Y, rect.Width, rect.Height + 1)
-                : rect;
-
-            using (var fill = new SolidBrush(active ? Page : index == _hoverTab ? TabHover : TabIdle))
-                g.FillRectangle(fill, tab);
-
-            using (var pen = new Pen(Line))
+            if (active || index == _hoverTab)
             {
-                g.DrawLine(pen, tab.Left, tab.Top, tab.Right - 1, tab.Top);
-                g.DrawLine(pen, tab.Left, tab.Top, tab.Left, tab.Bottom - 1);
-                g.DrawLine(pen, tab.Right - 1, tab.Top, tab.Right - 1, tab.Bottom - 1);
+                using var path = FluentDrawing.Rounded(rect, Px(5));
+                using var fill = new SolidBrush(active ? palette.Card : palette.Hover);
+                g.FillPath(fill, path);
             }
-
-            TextRenderer.DrawText(g, UiText.T(_tabs[index], _s.DisplayLanguage), Font, tab,
-                active ? Ink : Muted,
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+            if (active)
+            {
+                using var indicator = new SolidBrush(palette.Accent);
+                using var path = FluentDrawing.Rounded(new Rectangle(rect.Left, rect.Top + Px(10), Px(3), rect.Height - Px(20)), Px(2));
+                g.FillPath(indicator, path);
+            }
+            FluentIcons.Draw(g, TabIcons[index], new Rectangle(rect.X + Px(12), rect.Y + Px(8), Px(20), Px(20)), Ink);
+            TextRenderer.DrawText(g, UiText.T(_tabs[index], _s.DisplayLanguage), Font,
+                new Rectangle(rect.X + Px(43), rect.Y, rect.Width - Px(47), rect.Height), Ink,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
         }
-
-        // Footer: a hairline, then identity on the left and actions on the right.
-        using (var hair = new Pen(Hair))
-        {
-            var y = ClientSize.Height - Px(FooterH) + Px(4);
-            g.DrawLine(hair, Px(Gutter), y, ClientSize.Width - Px(Gutter), y);
-        }
-
-        using var versionFont = new Font("Microsoft YaHei UI", 8f);
-        TextRenderer.DrawText(g, "SnipLite " + AppInfo.Version, versionFont,
-            new Rectangle(Px(Gutter + PagePad), ClientSize.Height - Px(FooterH) + Px(14), Px(240), Px(20)),
-            Hint,
-            TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+        TextRenderer.DrawText(g, AppInfo.Version, Font, new Rectangle(Px(24), ClientSize.Height - Px(34), Px(130), Px(20)), Hint);
+        var footerY = ClientSize.Height - Px(FooterH) + Px(13);
+        FluentIcons.Draw(g, "check", new Rectangle(PageRect().X + Px(6), footerY, Px(17), Px(17)), palette.Accent);
+        var themeText = palette.HighContrast ? "跟随 Windows · 高对比度" : palette.Dark ? "跟随 Windows · 深色" : "跟随 Windows · 浅色";
+        TextRenderer.DrawText(g, UiText.T(themeText, _s.DisplayLanguage), Font,
+            new Rectangle(PageRect().X + Px(30), footerY - Px(2), Px(260), Px(23)), Muted, TextFormatFlags.VerticalCenter);
     }
 
     private void LayoutTabs(Graphics g)
     {
         _tabRects.Clear();
 
-        var x = PageRect().X;
-
         for (var i = 0; i < _tabs.Length; i++)
         {
-            var width = TextRenderer.MeasureText(g, UiText.T(_tabs[i], _s.DisplayLanguage), Font).Width + Px(26);
-            _tabRects.Add((new Rectangle(x, Px(StripY), width, Px(StripH)), i));
-            x += width;
+            var y = i < 6 ? Px(105 + i * 40) : ClientSize.Height - Px(128 - (i - 6) * 40);
+            _tabRects.Add((new Rectangle(Px(10), y, Px(SidebarW - 20), Px(36)), i));
         }
     }
 
@@ -346,6 +357,7 @@ internal sealed partial class PreferencesForm : Form
         _page.AutoScrollMinSize = new Size(0, _y + Px(PagePad));
         _page.ResumeLayout();
         UiText.Apply(_page, _s.DisplayLanguage);
+        AppTheme.Apply(_page);
         _reset.Visible = index <= 5;
         ActiveControl = null;
         Invalidate();
@@ -400,7 +412,7 @@ internal sealed partial class PreferencesForm : Form
     private int ContentWidth() => PageRect().Width - Px(PagePad * 2) - SystemInformation.VerticalScrollBarWidth;
 
     /// <summary>Width left for a field that starts in the control column.</summary>
-    private int FillWidth() => ContentWidth() - Px(LabelW + ControlGap);
+    private int FillWidth() => ContentWidth() - Px(LabelW + ControlGap + 16);
 
     /// <summary>
     /// A named group of rows. Pages with more than one group show a caption and
@@ -459,18 +471,40 @@ internal sealed partial class PreferencesForm : Form
     }
     private void Row(string label, params Control[] controls)
     {
-        AddLabel(label, _labelX, _y, LabelW);
-
-        var x = _controlX;
-
-        foreach (var control in controls)
+        var height = Math.Max(Px(RowH), controls.Select(c => c.Height + Px(22)).DefaultIfEmpty(0).Max());
+        var card = NewSettingRow(height);
+        if (label.Length > 0)
         {
-            control.Location = new Point(x, _y + Math.Max(0, (Px(RowH) - control.Height) / 2));
-            _page.Controls.Add(control);
+            AddRowIcon(card, label);
+            card.Controls.Add(new Label { Text = label, AutoSize = false, Bounds = new Rectangle(Px(48), 0, Px(LabelW - 52), height),
+                TextAlign = ContentAlignment.MiddleLeft, ForeColor = Ink, BackColor = Color.Transparent });
+        }
+        var x = Px(LabelW + ControlGap);
+        foreach (var original in controls)
+        {
+            if (string.IsNullOrEmpty(original.AccessibleName)) original.AccessibleName = label;
+            var control = original is TextBoxBase or NumericUpDown ? new FluentInputFrame(original) { Height = Px(ControlH) } : original;
+            control.Location = new Point(x, Math.Max(0, (height - control.Height) / 2));
+            if (control.Width > card.Width - x - Px(14)) control.Width = Math.Max(Px(40), card.Width - x - Px(14));
+            if (string.IsNullOrEmpty(control.AccessibleName)) control.AccessibleName = label;
+            card.Controls.Add(control);
             x += control.Width + Px(ControlGap);
         }
+        _y += height + Px(6);
+    }
 
-        _y += Px(RowH);
+    private FluentSettingRow NewSettingRow(int height)
+    {
+        var row = new FluentSettingRow { Bounds = new Rectangle(_labelX, _y, ContentWidth(), height) };
+        _page.Controls.Add(row);
+        return row;
+    }
+
+    private void AddRowIcon(Control row, string label)
+    {
+        var icon = new Panel { Bounds = new Rectangle(Px(15), (row.Height - Px(20)) / 2, Px(20), Px(20)), BackColor = AppTheme.Current.Card };
+        icon.Paint += (_, e) => FluentIcons.Draw(e.Graphics, FluentIcons.ForLabel(label), icon.ClientRectangle, Ink);
+        row.Controls.Add(icon);
     }
 
     /// <summary>A row whose first control stretches to fill the remaining width.</summary>
@@ -492,20 +526,22 @@ internal sealed partial class PreferencesForm : Form
 
     private void Check(string text, bool value, Action<bool> onChange)
     {
-        var box = new CheckBox
+        var card = NewSettingRow(Px(CheckH));
+        AddRowIcon(card, text);
+        var box = new FluentToggle
         {
             Text = text,
             AutoSize = false,
-            Bounds = new Rectangle(_labelX, _y, ContentWidth(), Px(24)),
-            BackColor = Page,
+            Bounds = new Rectangle(Px(48), Px(8), card.Width - Px(62), card.Height - Px(16)),
+            BackColor = AppTheme.Current.Card,
             ForeColor = Ink,
             Checked = value
         };
 
         box.CheckedChanged += (_, _) => onChange(box.Checked);
 
-        _page.Controls.Add(box);
-        _y += Px(CheckH);
+        card.Controls.Add(box);
+        _y += Px(CheckH + 6);
     }
 
     private void AddLabel(string text, int x, int y, int width)
@@ -543,7 +579,7 @@ internal sealed partial class PreferencesForm : Form
         Text = text,
         AutoSize = true,
         ForeColor = Ink,
-        BackColor = Page,
+        BackColor = Color.Transparent,
         Margin = Padding.Empty
     };
 
@@ -554,8 +590,9 @@ internal sealed partial class PreferencesForm : Form
     /// </summary>
     private Button MakeChooser(string[] options, int selected, Action<int> onChange)
     {
-        var button = new Button
+        var button = new FluentButton
         {
+            DropDown = true,
             Text = options[Math.Clamp(selected, 0, options.Length - 1)],
             AutoSize = false,
             FlatStyle = FlatStyle.Flat,
@@ -563,31 +600,14 @@ internal sealed partial class PreferencesForm : Form
             ForeColor = Ink,
             TextAlign = ContentAlignment.MiddleLeft,
             Padding = new Padding(Px(8), 0, Px(26), 0),
-            Width = Px(168),
+            Width = Px(190),
             Height = Px(ControlH),
-            TabStop = false
+            TabStop = true
         };
 
         button.FlatAppearance.BorderColor = FieldEdge;
-        button.FlatAppearance.MouseOverBackColor = Color.FromArgb(0xEC, 0xEC, 0xEC);
-        button.FlatAppearance.MouseDownBackColor = Color.FromArgb(0xE0, 0xE0, 0xE0);
-
-        button.Paint += (_, e) =>
-        {
-            var x = button.Width - Px(14);
-            var y = button.Height / 2 + Px(1);
-            var arm = Px(4);
-
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-
-            using var pen = new Pen(Muted, 1.4f);
-            e.Graphics.DrawLines(pen, new[]
-            {
-                new Point(x - arm, y - Px(2)),
-                new Point(x, y + Px(2)),
-                new Point(x + arm, y - Px(2))
-            });
-        };
+        button.FlatAppearance.MouseOverBackColor = AppTheme.Current.Hover;
+        button.FlatAppearance.MouseDownBackColor = AppTheme.Current.AccentSoft;
 
         // One menu for the life of the chooser, owned by the button so it is
         // disposed together with it. Re-creating (and disposing) the menu on
@@ -606,6 +626,7 @@ internal sealed partial class PreferencesForm : Form
                 button.Text = options[index];
                 onChange(index);
             });
+            items[i].Tag = null;
 
             menu.Items.Add(items[i]);
         }
@@ -619,6 +640,13 @@ internal sealed partial class PreferencesForm : Form
         };
 
         button.Click += (_, _) => menu.Show(button, new Point(0, button.Height + Px(2)));
+        button.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode is not (Keys.Down or Keys.Up or Keys.F4)) return;
+            menu.Show(button, new Point(0, button.Height + Px(2)));
+            items[Math.Clamp(Array.FindIndex(options, option => option == button.Text), 0, items.Length - 1)].Select();
+            e.Handled = e.SuppressKeyPress = true;
+        };
         return button;
     }
 
@@ -630,7 +658,7 @@ internal sealed partial class PreferencesForm : Form
             Maximum = max,
             Value = Math.Clamp(value, min, max),
             Width = Px(width),
-            BackColor = Page,
+            BackColor = Field,
             ForeColor = Ink,
             TextAlign = HorizontalAlignment.Right
         };
@@ -644,7 +672,7 @@ internal sealed partial class PreferencesForm : Form
     {
         Text = value,
         Width = width,
-        BackColor = Page,
+        BackColor = Field,
         ForeColor = Ink,
         BorderStyle = BorderStyle.FixedSingle
     };
@@ -657,15 +685,17 @@ internal sealed partial class PreferencesForm : Form
         button.BackColor = Field;
         button.ForeColor = Ink;
         button.FlatAppearance.BorderColor = FieldEdge;
-        button.FlatAppearance.MouseOverBackColor = Color.FromArgb(0xEC, 0xEC, 0xEC);
-        button.FlatAppearance.MouseDownBackColor = Color.FromArgb(0xE0, 0xE0, 0xE0);
-        button.Height = Px(28);
-        button.Width = TextRenderer.MeasureText(text, Font).Width + Px(24);
+        button.FlatAppearance.MouseOverBackColor = AppTheme.Current.Hover;
+        button.FlatAppearance.MouseDownBackColor = AppTheme.Current.AccentSoft;
+        button.Height = Px(ControlH);
+        using var metrics = IsHandleCreated ? CreateGraphics() : null;
+        var measured = metrics is null ? TextRenderer.MeasureText(text, Font) : TextRenderer.MeasureText(metrics, text, Font);
+        button.Width = measured.Width + Px(28);
     }
 
     private void AddButton(int x, string text, Action action)
     {
-        var button = new Button();
+        var button = new FluentButton();
         StyleButton(button, text);
         button.Bounds = new Rectangle(x, _y, button.Width, Px(28));
         button.Click += (_, _) => action();

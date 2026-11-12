@@ -13,7 +13,7 @@ internal sealed partial class PreferencesForm
         for (var i = 0; i < names.Length; i++)
         {
             var index = i;
-            var button = new Button(); StyleButton(button, names[i]);
+            var button = new FluentButton { Selected = i == selected }; StyleButton(button, names[i]);
             button.Location = new Point(x, _y);
             button.BackColor = i == selected ? Page : Field;
             button.FlatAppearance.BorderColor = i == selected ? _s.Accent : FieldEdge;
@@ -32,7 +32,7 @@ internal sealed partial class PreferencesForm
     }
     private void Flag(string label, string name) => Check(label, (bool)Value(name), value => Set(name, value));
     private void Number(string label, string name, int min, int max, string suffix = "")
-        => Row(label, MakeNumber(min, max, Convert.ToInt32(Value(name)), 85, value => Set(name, value)), MakeStatic(suffix));
+        => Row(label, MakeNumber(min, max, Convert.ToInt32(Value(name)), 140, value => Set(name, value)), MakeStatic(suffix));
     private void Choice(string label, string name, string[] labels, object[] values)
     {
         var value = Value(name);
@@ -40,7 +40,7 @@ internal sealed partial class PreferencesForm
     }
     private void ColorRow(string label, string name)
     {
-        var button = new Button(); StyleButton(button, "选择颜色");
+        var button = new FluentButton { Tag = "color-swatch" }; StyleButton(button, "选择颜色");
         button.BackColor = Color.FromArgb((int)Value(name));
         button.ForeColor = button.BackColor.GetBrightness() < .45 ? Color.White : Ink;
         button.Click += (_, _) =>
@@ -56,7 +56,7 @@ internal sealed partial class PreferencesForm
     private void FontRow(string label, string family, string size)
     {
         Value(family); Value(size);
-        var button = new Button(); StyleButton(button, $"{Value(family)}, {Value(size)}");
+        var button = new FluentButton(); StyleButton(button, $"{Value(family)}, {Value(size)}");
         button.Width = Math.Min(Px(320), FillWidth());
         button.Click += (_, _) =>
         {
@@ -74,18 +74,19 @@ internal sealed partial class PreferencesForm
     private void FolderRow(string label, string name)
     {
         var text = MakeText((string)Value(name), 0); text.ReadOnly = true;
-        var change = new Button(); StyleButton(change, "更改");
+        var change = new FluentButton(); StyleButton(change, "更改");
         change.Click += (_, _) =>
         {
             using var dialog = new FolderBrowserDialog { SelectedPath = text.Text };
             if (dialog.ShowDialog(this) != DialogResult.OK) return;
             text.Text = dialog.SelectedPath; Set(name, dialog.SelectedPath);
         };
-        var open = new Button(); StyleButton(open, "打开"); open.Click += (_, _) => Open(text.Text, false);
+        var open = new FluentButton(); StyleButton(open, "打开"); open.Click += (_, _) => Open(text.Text, false);
         RowFill(label, text, open, change);
     }
     private void GeneralPage()
     {
+        Section("语言与识别", () => { });
         Choice("显示语言", nameof(_s.DisplayLanguage), new[] { "简体中文", "English" }, new object[] { "zh-CN", "en-US" });
         Choice("识别引擎", nameof(_s.OcrEngine), new[] { "本地增强（中英自动识别）", "Windows 系统识别" }, new object[] { OcrEngineKind.SimdPaddle, OcrEngineKind.Windows });
         Choice("系统识别语言", nameof(_s.OcrLanguage), new[] { "简体中文", "English", "跟随系统" }, new object[] { "zh-Hans", "en-US", "" });
@@ -112,7 +113,7 @@ internal sealed partial class PreferencesForm
                 if (!translationService.IsDisposed) translationService.Text = translationLabels[index];
             });
         });
-        var configureTranslator = new Button();
+        var configureTranslator = new FluentButton();
         StyleButton(configureTranslator, "配置微软密钥");
         configureTranslator.Click += (_, _) =>
         {
@@ -121,6 +122,7 @@ internal sealed partial class PreferencesForm
             if (!translationService.IsDisposed) translationService.Text = translationLabels[0];
         };
         Row("翻译服务", translationService, configureTranslator);
+        Section("启动与运行", () => { });
         Value(nameof(_s.StartWithWindows)); Value(nameof(_s.StartAsAdministrator));
         Check("开机启动", _s.StartWithWindows, value =>
         {
@@ -135,13 +137,14 @@ internal sealed partial class PreferencesForm
         Flag("自动备份配置文件", nameof(_s.AutoBackup));
         Flag("保持快速响应", nameof(_s.KeepResponsive));
         Flag("增强版托盘菜单", nameof(_s.EnhancedTrayMenu));
+        Section("配置与日志", () => { });
         Choice("日志级别", nameof(_s.LogLevel), new[] { "关闭", "仅错误", "普通", "调试" }, new object[] { "Off", "Error", "Normal", "Debug" });
         AddButton(_controlX, "打开日志文件", () => OpenFile(AppLog.FilePath));
         var path = MakeText(AppSettings.FilePath, FillWidth()); path.ReadOnly = true;
         Row("配置文件", path);
-        var openFolder = new Button(); StyleButton(openFolder, "打开所在文件夹"); openFolder.Click += (_, _) => Open(AppSettings.FilePath, true);
-        var open = new Button(); StyleButton(open, "打开"); open.Click += (_, _) => OpenFile(AppSettings.FilePath);
-        var change = new Button(); StyleButton(change, "更改"); change.Click += (_, _) =>
+        var openFolder = new FluentButton(); StyleButton(openFolder, "打开所在文件夹"); openFolder.Click += (_, _) => Open(AppSettings.FilePath, true);
+        var open = new FluentButton(); StyleButton(open, "打开"); open.Click += (_, _) => OpenFile(AppSettings.FilePath);
+        var change = new FluentButton(); StyleButton(change, "更改"); change.Click += (_, _) =>
         {
             using var dialog = new SaveFileDialog { Filter = "JSON 配置|*.json", FileName = Path.GetFileName(AppSettings.FilePath), InitialDirectory = Path.GetDirectoryName(AppSettings.FilePath) };
             if (dialog.ShowDialog(this) != DialogResult.OK) return;
@@ -171,9 +174,11 @@ internal sealed partial class PreferencesForm
         };
         var key = new TextBox { Bounds = new Rectangle(128, 17, 294, 26), UseSystemPasswordChar = true, Text = current?.Key ?? "" };
         var region = new TextBox { Bounds = new Rectangle(128, 52, 294, 26), Text = current?.Region ?? "" };
-        var save = new Button { Text = "保存", Bounds = new Rectangle(254, 118, 80, 30), Enabled = !requireKey || !string.IsNullOrWhiteSpace(key.Text) };
+        var keyField = new FluentInputFrame(key) { Bounds = new Rectangle(128, 14, 294, 32) };
+        var regionField = new FluentInputFrame(region) { Bounds = new Rectangle(128, 49, 294, 32) };
+        var save = new FluentButton { Text = "保存", Bounds = new Rectangle(254, 118, 80, 30), Enabled = !requireKey || !string.IsNullOrWhiteSpace(key.Text) };
         if (requireKey) key.TextChanged += (_, _) => save.Enabled = !string.IsNullOrWhiteSpace(key.Text);
-        var cancel = new Button { Text = "取消", Bounds = new Rectangle(342, 118, 80, 30), DialogResult = DialogResult.Cancel };
+        var cancel = new FluentButton { Text = "取消", Bounds = new Rectangle(342, 118, 80, 30), DialogResult = DialogResult.Cancel };
         dialog.Controls.AddRange(new Control[]
         {
             new Label { Text = "Translator 密钥", Bounds = new Rectangle(18, 20, 110, 26) },
@@ -183,7 +188,7 @@ internal sealed partial class PreferencesForm
                 Text = requireKey ? "请输入 Azure Translator 密钥。全局资源可留空区域。" : "全局资源可留空区域。留空密钥并保存可清除配置。",
                 Bounds = new Rectangle(18, 86, 404, 28)
             },
-            key, region, save, cancel
+            keyField, regionField, save, cancel
         });
         save.Click += (_, _) =>
         {
@@ -200,11 +205,14 @@ internal sealed partial class PreferencesForm
         };
         dialog.AcceptButton = save;
         dialog.CancelButton = cancel;
+        AppTheme.Apply(dialog);
+        dialog.HandleCreated += (_, _) => AppTheme.ApplyWindow(dialog);
         return dialog.ShowDialog(this) == DialogResult.OK ? !string.IsNullOrWhiteSpace(key.Text) : null;
     }
 
     private void InterfacePage()
     {
+        HintText("界面与图标跟随 Windows 浅色 / 深色模式，切换后即时生效。");
         FontRow("界面字体", nameof(_s.InterfaceFont), nameof(_s.InterfaceFontSize));
         ColorRow("主题颜色", nameof(_s.AccentArgb));
         Choice("托盘图标", nameof(_s.TrayIconStyle), new[] { "自动", "彩色", "自定义" }, new object[] { "Auto", "Color", "Custom" });
@@ -252,12 +260,12 @@ internal sealed partial class PreferencesForm
         Flag("截图后自动复制", nameof(_s.CopyAfterCapture));
         var sound = MakeText((string)Value(nameof(_s.CaptureSound)), 0);
         sound.TextChanged += (_, _) => Set(nameof(_s.CaptureSound), sound.Text);
-        var choose = new Button(); StyleButton(choose, "更改"); choose.Click += (_, _) =>
+        var choose = new FluentButton(); StyleButton(choose, "更改"); choose.Click += (_, _) =>
         {
             using var dialog = new OpenFileDialog { Filter = "WAV 音效|*.wav" };
             if (dialog.ShowDialog(this) == DialogResult.OK) sound.Text = dialog.FileName;
         };
-        var play = new Button(); StyleButton(play, "试听"); play.Click += (_, _) => Services.PlaySound(sound.Text);
+        var play = new FluentButton(); StyleButton(play, "试听"); play.Click += (_, _) => Services.PlaySound(sound.Text);
         RowFill("音效文件", sound, play, choose);
         Flag("复制到剪贴板时播放音效", nameof(_s.SoundOnCopy)); Flag("快速保存时播放音效", nameof(_s.SoundOnSave));
         HintText("Tab / Shift+Tab 切换历史区域；历史图像可从托盘菜单恢复。");
@@ -266,7 +274,7 @@ internal sealed partial class PreferencesForm
     {
         var values = new object[] { CaptureAction.Copy, CaptureAction.Pin, CaptureAction.QuickSave, CaptureAction.None };
         var chooser = MakeChooser(new[] { "复制到剪贴板", "贴到屏幕", "快速保存", "无操作" }, Array.IndexOf(values, Value(action)), i => Set(action, values[i]));
-        var check = new CheckBox { Text = "然后退出截屏", AutoSize = true, Checked = (bool)Value(exit) };
+        var check = new FluentToggle { Text = "然后退出截屏", AutoSize = false, Width = Px(180), Height = Px(ControlH), Checked = (bool)Value(exit) };
         check.CheckedChanged += (_, _) => Set(exit, check.Checked);
         Row(label, chooser, check);
     }

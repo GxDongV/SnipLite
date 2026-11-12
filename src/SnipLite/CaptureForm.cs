@@ -115,7 +115,7 @@ internal sealed partial class CaptureForm : Form
     private Rectangle _ocrCrop;
     private string? _qrText;
     private Rectangle _lastMagnifierBounds;
-    private bool MagnifierVisible => _showMagnifier || _settings.AutoMagnifier && !_hasSelection && !_dragging;
+    private bool MagnifierVisible => _showMagnifier || _dragMode >= 3 || _settings.AutoMagnifier && !_hasSelection && !_dragging;
 
     public event Action<CaptureResult?>? Done;
 
@@ -290,6 +290,7 @@ internal sealed partial class CaptureForm : Form
             {
                 _barVisible = false;
             }
+            DrawSelectionBadge(g);
         }
         else
         {
@@ -310,8 +311,9 @@ internal sealed partial class CaptureForm : Form
             {
                 var hint = "拖动框选 / 单击窗口 · 右键取消 · Alt 放大镜 · Tab 历史区域";
                 var box = new Rectangle((int)(20 * Ui), _virtual.Height - (int)(42 * Ui), (int)(600 * Ui), (int)(28 * Ui));
-                using var back = new SolidBrush(Color.FromArgb(220, 28, 28, 28)); g.FillRectangle(back, box);
-                TextRenderer.DrawText(g, hint, Font, box, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+                using var back = new SolidBrush(AppTheme.Current.Card);
+                using var hintPath = FluentDrawing.Rounded(box, 6 * Ui); g.FillPath(back, hintPath);
+                TextRenderer.DrawText(g, hint, Font, box, AppTheme.Current.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             }
         }
 
@@ -330,30 +332,66 @@ internal sealed partial class CaptureForm : Form
 
         if (handles)
         {
-            var handle = Math.Max(5, (int)Math.Round(5 * Ui));
-            using var brush = new SolidBrush(_settings.Accent);
-            using var edge = new Pen(Color.FromArgb(_settings.CaptureAnchorColor));
+            var handle = Math.Max(8, (int)Math.Round(8 * Ui));
+            var state = g.Save();
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            using var brush = new SolidBrush(Color.FromArgb(_settings.CaptureAnchorColor | unchecked((int)0xFF000000)));
+            using var halo = new Pen(Color.FromArgb(150, Color.Black), Math.Max(3, 3 * Ui));
+            using var edge = new Pen(_settings.Accent, Math.Max(1, 1.5f * Ui));
             foreach (var p in Anchors(r))
             {
-                g.FillRectangle(brush, p.X - handle / 2, p.Y - handle / 2, handle, handle);
-                g.DrawRectangle(edge, p.X - handle / 2, p.Y - handle / 2, handle, handle);
+                var bounds = new Rectangle(Math.Clamp(p.X - handle / 2, 2, Math.Max(2, _virtual.Width - handle - 2)),
+                    Math.Clamp(p.Y - handle / 2, 2, Math.Max(2, _virtual.Height - handle - 2)), handle, handle);
+                g.DrawRectangle(halo, bounds);
+                g.FillRectangle(brush, bounds);
+                g.DrawRectangle(edge, bounds);
             }
+            g.Restore(state);
         }
+    }
 
+    private void DrawSelectionBadge(Graphics g)
+    {
+        var r = _selection;
         if (_settings.HideOnePixelHint && r.Width <= 1 && r.Height <= 1) return;
 
         var label = $"{r.Width} × {r.Height}";
         var size = g.MeasureString(label, _badgeFont);
-        var box = new Rectangle(r.X, r.Bottom + 6, (int)size.Width + 12, (int)size.Height + 6);
+        var padding = (int)Math.Ceiling(6 * Ui);
+        var screenSelection = r; screenSelection.Offset(_virtual.Location);
+        var viewport = Screen.FromRectangle(screenSelection).Bounds;
+        viewport.Offset(-_virtual.X, -_virtual.Y);
+        viewport = Rectangle.Intersect(viewport, new Rectangle(Point.Empty, _virtual.Size));
+        var obstacle = _barVisible ? _bar.Bounds : Rectangle.Empty;
+        if (TranslationVisible) obstacle = Rectangle.Union(obstacle, _translationPanel!.Bounds);
+        var box = SelectionBadgeBounds(r, new Size((int)Math.Ceiling(size.Width) + padding * 2,
+            (int)Math.Ceiling(size.Height) + padding), viewport, obstacle, (int)Math.Ceiling(10 * Ui));
 
-        if (box.Bottom > _virtual.Height) box.Y = r.Y - box.Height - 6;
-        if (box.Right > _virtual.Width) box.X = _virtual.Width - box.Width;
-        if (box.X < 0) box.X = 0;
+        using var back = new SolidBrush(AppTheme.Current.Card);
+        using var text = new SolidBrush(AppTheme.Current.Text);
+        using var badge = FluentDrawing.Rounded(box, 6 * Ui);
+        g.FillPath(back, badge);
+        using var border = new Pen(AppTheme.Current.Border);
+        g.DrawPath(border, badge);
+        g.DrawString(label, _badgeFont, text, box.X + padding, box.Y + padding / 2);
+    }
 
-        using var back = new SolidBrush(Color.FromArgb(225, 28, 28, 28));
-        using var text = new SolidBrush(Color.White);
-        g.FillRectangle(back, box);
-        g.DrawString(label, _badgeFont, text, box.X + 6, box.Y + 3);
+    internal static Rectangle SelectionBadgeBounds(Rectangle selection, Size size, Rectangle viewport, Rectangle obstacle, int gap)
+    {
+        size = new Size(Math.Min(size.Width, viewport.Width), Math.Min(size.Height, viewport.Height));
+        Rectangle Place(int x, int y) => new(Math.Clamp(x, viewport.Left, viewport.Right - size.Width),
+            Math.Clamp(y, viewport.Top, viewport.Bottom - size.Height), size.Width, size.Height);
+        // Prefer outside the upper-left corner. At the screen edge move inside,
+        // leaving the corner handle exposed; the toolbar may itself be above the crop.
+        var above = Place(selection.Left, selection.Top - size.Height - gap);
+        var inside = Place(selection.Left + gap, selection.Top + gap);
+        if (selection.Top - size.Height - gap >= viewport.Top && !above.IntersectsWith(obstacle)) return above;
+        if (!inside.IntersectsWith(obstacle)) return inside;
+        var belowBar = Place(selection.Left + gap, obstacle.Bottom + gap);
+        if (!belowBar.IntersectsWith(obstacle)) return belowBar;
+        var rightOfBar = Place(obstacle.Right + gap, selection.Top + gap);
+        if (!rightOfBar.IntersectsWith(obstacle)) return rightOfBar;
+        return above;
     }
 
     private void DrawMagnifier(Graphics g)
@@ -414,9 +452,10 @@ internal sealed partial class CaptureForm : Form
         var info = $"({_cursor.X + _virtual.X}, {_cursor.Y + _virtual.Y})\n{ColorValue(pixel)}" + (_settings.MagnifierHints ? "\nC 复制颜色 · Shift 切换 RGB / HEX" : "");
         var labelSize = g.MeasureString(info, _badgeFont);
         var label = new Rectangle(Math.Clamp(box.X, 0, Math.Max(0, _virtual.Width - (int)labelSize.Width - 12)), Math.Max(0, box.Y - (int)labelSize.Height - 8), (int)labelSize.Width + 12, (int)labelSize.Height + 6);
-        using var labelBack = new SolidBrush(Color.FromArgb(225, 28, 28, 28));
-        using var labelText = new SolidBrush(Color.White);
-        g.FillRectangle(labelBack, label);
+        using var labelBack = new SolidBrush(AppTheme.Current.Card);
+        using var labelText = new SolidBrush(AppTheme.Current.Text);
+        using var labelPath = FluentDrawing.Rounded(label, 6 * Ui);
+        g.FillPath(labelBack, labelPath);
         g.DrawString(info, _badgeFont, labelText, label.X + 6, label.Y + 3);
         _lastMagnifierBounds = Rectangle.Inflate(Rectangle.Union(box, label), 3, 3);
     }
@@ -559,6 +598,8 @@ internal sealed partial class CaptureForm : Form
                 _dragMode = index + 3;
                 _dragStartSelection = _selection;
                 _dragStartCursor = p;
+                Capture = true;
+                Invalidate(MagnifierDirtyBounds(_cursor));
                 return;
             }
 
@@ -680,6 +721,11 @@ internal sealed partial class CaptureForm : Form
                 UpdateTarget();
                 RepaintCrosshair(previous);
             }
+            else if (MagnifierVisible)
+            {
+                Invalidate(_lastMagnifierBounds);
+                Invalidate(MagnifierDirtyBounds(_cursor));
+            }
         }
     }
 
@@ -754,10 +800,26 @@ internal sealed partial class CaptureForm : Form
 
         if (_dragMode >= 2)
         {
+            if (_dragMode >= 3)
+            {
+                _cursor = Clamp(e.Location);
+                ResizeSelection(_dragMode - 3);
+            }
             _dragMode = 0;
+            Capture = false;
             Invalidate();
             if (_qrCaptureOnly && _hasSelection) _ = RecognizeSelectionAsync(ocr: false);
             else RefreshTranslationSelection();
+        }
+    }
+
+    protected override void OnMouseCaptureChanged(EventArgs e)
+    {
+        base.OnMouseCaptureChanged(e);
+        if (!Capture && _dragMode >= 3)
+        {
+            _dragMode = 0;
+            Invalidate();
         }
     }
 
@@ -1190,7 +1252,12 @@ internal sealed partial class CaptureForm : Form
     protected override void OnMouseWheel(MouseEventArgs e)
     {
         if (_settings.DisableCaptureWheel || _ocrMode || _recognitionBusy) return;
-        if (MagnifierVisible) { _magnifierZoom = Math.Clamp(_magnifierZoom + Math.Sign(e.Delta), 2, 16); Invalidate(_lastMagnifierBounds); }
+        if (MagnifierVisible)
+        {
+            _magnifierZoom = Math.Clamp(_magnifierZoom + Math.Sign(e.Delta), 2, 16);
+            Invalidate(_lastMagnifierBounds);
+            Invalidate(MagnifierDirtyBounds(_cursor));
+        }
         else if (_bar.Tool == ToolKind.Text && _hasSelection) { _bar.FontSize = Math.Clamp(_bar.FontSize + Math.Sign(e.Delta), 4, 200); RestyleText(); Invalidate(); }
         base.OnMouseWheel(e);
     }
@@ -1223,7 +1290,7 @@ internal sealed partial class CaptureForm : Form
         else RestoreFocus();
     }
 
-    private void ShowOptionMenu(ContextMenuStrip menu, string id)
+    private void ShowOptionMenu(ContextMenuStrip menu, string id, Point? screenLocation = null)
     {
         _optionMenus.Add(menu);
         menu.Closed += (_, _) =>
@@ -1231,7 +1298,7 @@ internal sealed partial class CaptureForm : Form
             if (!IsDisposed && IsHandleCreated) BeginInvoke(() => { if (!IsDisposed) RestoreEditorFocus(); });
         };
         var bounds = _bar.ItemBounds(id);
-        menu.Show(this, new Point(bounds.Left, bounds.Bottom));
+        menu.Show(this, screenLocation.HasValue ? PointToClient(screenLocation.Value) : new Point(bounds.Left, bounds.Bottom));
     }
 
     private void ShowSizePicker()
@@ -1248,27 +1315,47 @@ internal sealed partial class CaptureForm : Form
     private void ShowFontPicker()
     {
         var menu = SnipMenu.Create();
-        var combo = new ToolStripComboBox { AutoSize = false, Width = (int)(240 * Ui), DropDownStyle = ComboBoxStyle.DropDownList, MaxDropDownItems = 16 };
-        var families = FontFamily.Families;
-        try { combo.Items.AddRange(families.Select(f => f.Name).OrderBy(name => name).Cast<object>().ToArray()); }
-        finally { foreach (var family in families) family.Dispose(); }
-        combo.SelectedItem = _bar.FontFamily;
-        combo.SelectedIndexChanged += (_, _) =>
+        menu.ShowCheckMargin = false;
+        menu.ShowImageMargin = false;
+        var list = new FontFamilyList(Ui, _bar.FontFamily);
+        var anchor = RectangleToScreen(_bar.ItemBounds("fontfamily"));
+        var area = Rectangle.Intersect(Screen.FromRectangle(anchor).WorkingArea, RectangleToScreen(ClientRectangle));
+        var gap = (int)Math.Ceiling(3 * Ui);
+        var above = Math.Clamp(PointToScreen(_bar.Bounds.Location).Y - gap, area.Top, area.Bottom);
+        var below = Math.Clamp(anchor.Bottom + gap, area.Top, area.Bottom);
+        var chrome = 2 + menu.Padding.Vertical;
+        var height = list.ItemHeight * Math.Min(12, list.Items.Count) + chrome;
+        var openAbove = height > area.Bottom - below && above - area.Top > area.Bottom - below;
+        var availableHeight = Math.Max(1, openAbove ? above - area.Top : area.Bottom - below);
+        var rows = Math.Clamp((availableHeight - chrome) / list.ItemHeight, 1, Math.Max(1, Math.Min(12, list.Items.Count)));
+        height = Math.Min(availableHeight, rows * list.ItemHeight + chrome);
+        var width = Math.Min((int)Math.Round(260 * Ui), area.Width);
+        // ToolStrip keeps a horizontal inset even with both margins disabled.
+        list.Size = new Size(Math.Max(1, width - (int)Math.Ceiling(20 * Ui)), Math.Max(1, height - menu.Padding.Vertical));
+        var host = new ToolStripControlHost(list)
         {
-            if (combo.SelectedItem is string name) { _bar.FontFamily = name; RestyleText(); Invalidate(); }
+            AutoSize = false, Size = list.Size, Margin = Padding.Empty, Padding = Padding.Empty
         };
-        menu.Items.Add(combo);
-        menu.Items.Add(SnipMenu.Item("字体与字号…", () =>
+        menu.Items.Add(host);
+        menu.AutoSize = false;
+        menu.Size = new Size(width, height);
+        menu.PerformLayout();
+        host.Width = Math.Max(1, menu.ClientSize.Width - host.Bounds.Left - menu.Padding.Right);
+        list.Chosen += family =>
         {
-            using var font = TextShape.CreateFont(_bar.FontFamily, _bar.FontSize, TextShape.StyleOf(_bar.Bold, _bar.Italic));
-            using var dialog = new FontDialog { Font = font, ShowEffects = false, MinSize = 4, MaxSize = 200, FontMustExist = true };
-            if (dialog.ShowDialog(this) != DialogResult.OK) return;
-            _bar.FontFamily = dialog.Font.FontFamily.Name;
-            _bar.FontSize = dialog.Font.SizeInPoints;
-            _bar.Bold = dialog.Font.Bold; _bar.Italic = dialog.Font.Italic;
+            _bar.FontFamily = family;
             RestyleText(); Invalidate();
-        }));
-        ShowOptionMenu(menu, "fontfamily");
+            menu.Close();
+        };
+        list.Dismissed += () => menu.Close();
+        menu.Opened += (_, _) =>
+        {
+            if (list.SelectedIndex >= 0)
+                list.TopIndex = Math.Max(0, list.SelectedIndex - list.ClientSize.Height / list.ItemHeight / 2);
+            list.Focus();
+        };
+        var location = new Point(Math.Clamp(anchor.Left, area.Left, area.Right - width), openAbove ? above - height : below);
+        ShowOptionMenu(menu, "fontfamily", location);
     }
 
     private void ShowWidthPicker()
@@ -1968,6 +2055,14 @@ internal sealed partial class CaptureForm : Form
 
         var margin = (int)Math.Round(120 * Ui);
         region.Inflate(margin, margin);
+
+        if (MagnifierVisible)
+        {
+            // The lens can extend beyond the selection's normal repaint margin.
+            // Erase its previous position as well as painting the next one.
+            if (!_lastMagnifierBounds.IsEmpty) region = Rectangle.Union(region, _lastMagnifierBounds);
+            region = Rectangle.Union(region, MagnifierDirtyBounds(_cursor));
+        }
 
         Invalidate(Rectangle.Intersect(region, new Rectangle(Point.Empty, _virtual.Size)));
     }

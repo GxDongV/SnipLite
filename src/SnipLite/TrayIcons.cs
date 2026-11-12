@@ -15,14 +15,18 @@ internal static class TrayIcons
     {
         if (settings.TrayIconStyle == "Custom" && File.Exists(settings.CustomTrayIcon))
         { try { return LoadCustom(settings.CustomTrayIcon); } catch (Exception ex) { AppLog.Write("自定义托盘图标读取失败", ex); } }
-        using var bitmap = new Bitmap(32, 32);
-        using (var g = Graphics.FromImage(bitmap))
+        var iconSize = SystemInformation.SmallIconSize.Width;
+        using var logo = AppIcon.Load(iconSize);
+        using var bitmap = logo.ToBitmap();
+        var palette = AppTheme.Current;
+        var tint = settings.TrayIconStyle == "Color" ? settings.Accent
+            : palette.HighContrast ? SystemColors.WindowText
+            : palette.TaskbarDark ? Color.FromArgb(245, 245, 245) : Color.FromArgb(40, 40, 43);
+        // Auto follows the taskbar, which Windows can theme separately from application windows.
+        for (var y = 0; y < bitmap.Height; y++)
         {
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            g.Clear(Color.Transparent);
-            using var background = new SolidBrush(settings.TrayIconStyle == "Color" ? settings.Accent : Color.FromArgb(0, 174, 255));
-            g.FillRectangle(background, 3, 3, 26, 26);
-            using var pen = new Pen(Color.White, 3); g.DrawRectangle(pen, 10, 10, 12, 12);
+            for (var x = 0; x < bitmap.Width; x++)
+                bitmap.SetPixel(x, y, Color.FromArgb(bitmap.GetPixel(x, y).A, tint));
         }
         var handle = bitmap.GetHicon();
         try { using var borrowed = Icon.FromHandle(handle); return (Icon)borrowed.Clone(); }

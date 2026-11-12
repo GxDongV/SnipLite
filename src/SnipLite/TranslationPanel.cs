@@ -5,8 +5,8 @@ namespace SnipLite;
 /// <summary>A single options row below the unchanged annotation toolbar.</summary>
 internal sealed class TranslationPanel : UserControl
 {
-    internal static readonly Color Surface = SnipMenuRenderer.Back;
-    private static readonly Color Ink = Color.FromArgb(62, 62, 62);
+    internal static Color Surface => AppTheme.Current.Card;
+    private static Color Ink => AppTheme.Current.Text;
     private readonly Color _accent;
     private readonly Button _providerButton;
     private readonly Button _source;
@@ -57,10 +57,27 @@ internal sealed class TranslationPanel : UserControl
         _tips.SetToolTip(_retry, "重新翻译");
         _providerButton = MakeDropdown("翻译服务", ShowProviders);
         _tips.SetToolTip(_providerButton, "切换本次截图的翻译服务");
-        _status = new Label { ForeColor = Color.FromArgb(110, 110, 110), Font = _smallFont, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
+        _status = new Label { ForeColor = AppTheme.Current.Muted, Font = _smallFont, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
         Controls.Add(_status);
         Width = Px(680); Height = Px(44);
         SetProvider(provider); SetBusy("正在识别…");
+        AppTheme.Changed += ApplyTheme;
+    }
+
+    private void ApplyTheme()
+    {
+        if (IsDisposed) return;
+        BackColor = Surface; ForeColor = Ink;
+        foreach (var button in Controls.OfType<Button>())
+        {
+            button.BackColor = Surface; button.ForeColor = Ink;
+            button.FlatAppearance.BorderColor = AppTheme.Current.Border;
+            button.FlatAppearance.MouseOverBackColor = AppTheme.Current.Hover;
+            button.FlatAppearance.MouseDownBackColor = AppTheme.Current.AccentSoft;
+            button.Invalidate();
+        }
+        _status.ForeColor = AppTheme.Current.Muted;
+        RefreshView(); Invalidate();
     }
 
     private Button MakeButton(Action click)
@@ -73,7 +90,7 @@ internal sealed class TranslationPanel : UserControl
         };
         button.FlatAppearance.BorderSize = 0;
         button.FlatAppearance.MouseOverBackColor = SnipMenuRenderer.Hover;
-        button.FlatAppearance.MouseDownBackColor = Color.FromArgb(194, 222, 241);
+        button.FlatAppearance.MouseDownBackColor = AppTheme.Current.AccentSoft;
         button.Click += (_, _) => click(); Controls.Add(button); return button;
     }
 
@@ -97,7 +114,7 @@ internal sealed class TranslationPanel : UserControl
         button.Padding = new Padding(Px(8), 0, Px(24), 0);
         button.AutoEllipsis = true;
         button.FlatAppearance.BorderSize = 1;
-        button.FlatAppearance.BorderColor = Color.FromArgb(200, 200, 200);
+        button.FlatAppearance.BorderColor = AppTheme.Current.Border;
         button.Paint += (_, e) =>
         {
             var x = button.ClientSize.Width - Px(13);
@@ -135,8 +152,11 @@ internal sealed class TranslationPanel : UserControl
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
-        using var border = new Pen(_accent); e.Graphics.DrawRectangle(border, 0, 0, Width - 1, Height - 1);
-        using var divider = new Pen(Color.FromArgb(200, 200, 200));
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        using var border = new Pen(AppTheme.Current.Border);
+        using var path = FluentDrawing.Rounded(new RectangleF(.5f, .5f, Width - 1, Height - 1), Px(8));
+        e.Graphics.DrawPath(border, path);
+        using var divider = new Pen(AppTheme.Current.Border);
         e.Graphics.DrawLine(divider, _view.Right + Px(5), Px(10), _view.Right + Px(5), Height - Px(10));
     }
 
@@ -187,7 +207,7 @@ internal sealed class TranslationPanel : UserControl
     }
 
     private Pen MakeIconPen(bool enabled, Color color)
-        => new(enabled ? color : Color.FromArgb(170, 170, 170), 1.5f * _scale)
+        => new(enabled ? AppTheme.AdaptAccent(color) : AppTheme.Current.Disabled, 1.5f * _scale)
         {
             StartCap = LineCap.Round,
             EndCap = LineCap.Round,
@@ -270,7 +290,7 @@ internal sealed class TranslationPanel : UserControl
     {
         ResultText = ""; ShowOriginal = false;
         _view.Enabled = _copy.Enabled = _retry.Enabled = false;
-        _status.ForeColor = Color.FromArgb(110, 110, 110); SetStatus(status); RefreshView();
+        _status.ForeColor = AppTheme.Current.Muted; SetStatus(status); RefreshView();
     }
     public void SetProgress(int completed, int total) => SetStatus($"翻译中 {completed}/{total}");
     public void SetResult(TranslationResult result)
@@ -283,7 +303,7 @@ internal sealed class TranslationPanel : UserControl
     public void SetError(string error)
     {
         ResultText = ""; _view.Enabled = _copy.Enabled = false; _retry.Enabled = true;
-        _status.ForeColor = Color.FromArgb(178, 48, 42); SetStatus(error);
+        _status.ForeColor = AppTheme.Current.Dark ? Color.FromArgb(255, 160, 155) : Color.FromArgb(178, 48, 42); SetStatus(error);
         _tips.SetToolTip(_retry, "重试翻译"); RefreshView();
     }
     internal void SetStatus(string status)
@@ -315,6 +335,7 @@ internal sealed class TranslationPanel : UserControl
     {
         if (disposing)
         {
+            AppTheme.Changed -= ApplyTheme;
             CloseMenus(); var menus = _menus.ToArray(); _menus.Clear();
             var context = SynchronizationContext.Current;
             if (context is not null) context.Post(_ => { foreach (var menu in menus) menu.Dispose(); }, null);
