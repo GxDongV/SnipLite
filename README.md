@@ -8,6 +8,12 @@ Windows · 原生桌面界面 · 本地识别 · MIT
 
 [源代码](https://github.com/GxDongV/SnipLite) · [问题反馈](https://github.com/GxDongV/SnipLite/issues) · [发布版本](https://github.com/GxDongV/SnipLite/releases)
 
+## 界面预览
+
+云母浅色风格设计预览，展示首选项、截图工具栏、应用图标与托盘菜单。
+
+![SnipLite 云母浅色风格设计预览：首选项、截图工具栏、应用图标与托盘菜单](docs/images/sniplite-mica-light-preview.png)
+
 ## 亮点
 
 - **截图后直接识别文字**：工具栏内置 OCR，在原图上拖动选字，支持全选、复制，按 Esc 返回标注。默认使用 SimdPaddleOCR + PP-OCRv6 Small 本地模型，中英文自动识别，无需 API Key；也可切换 Windows 系统引擎。
