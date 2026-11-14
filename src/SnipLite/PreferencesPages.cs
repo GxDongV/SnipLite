@@ -124,15 +124,15 @@ internal sealed partial class PreferencesForm
         Row("翻译服务", translationService, configureTranslator);
         Section("启动与运行", () => { });
         Value(nameof(_s.StartWithWindows)); Value(nameof(_s.StartAsAdministrator));
-        Check("开机启动", _s.StartWithWindows, value =>
+        Check("开机启动", _s.StartWithWindows, async value =>
         {
-            if (Startup.TryApply(value, _s.StartAsAdministrator)) Set(nameof(_s.StartWithWindows), value);
-            else BeginInvoke(() => ShowTab(_selected));
+            if (await ApplyStartupAsync(value, _s.StartAsAdministrator)) Set(nameof(_s.StartWithWindows), value);
+            else if (!IsDisposed) ShowTab(_selected);
         });
-        Check("以管理员身份开机启动", _s.StartAsAdministrator, value =>
+        Check("以管理员身份开机启动", _s.StartAsAdministrator, async value =>
         {
-            if (!_s.StartWithWindows || Startup.TryApply(true, value)) Set(nameof(_s.StartAsAdministrator), value);
-            else BeginInvoke(() => ShowTab(_selected));
+            if (!_s.StartWithWindows || await ApplyStartupAsync(true, value)) Set(nameof(_s.StartAsAdministrator), value);
+            else if (!IsDisposed) ShowTab(_selected);
         });
         Flag("自动备份配置文件", nameof(_s.AutoBackup));
         Flag("保持快速响应", nameof(_s.KeepResponsive));
@@ -233,7 +233,7 @@ internal sealed partial class PreferencesForm
     private void MagnifierPage()
     {
         Choice("颜色值", nameof(_s.ColorHex), new[] { "RGB", "HEX" }, new object[] { false, true });
-        Flag("隐藏 #", nameof(_s.ColorHideHash)); Flag("Hex 颜色值大写", nameof(_s.ColorUppercase));
+        Flag("隐藏 HEX 颜色值开头的 #", nameof(_s.ColorHideHash)); Flag("Hex 颜色值大写", nameof(_s.ColorUppercase));
         Flag("显示操作提示", nameof(_s.MagnifierHints));
         Flag("选区前自动显示放大镜", nameof(_s.AutoMagnifier));
         Number("放大镜倍数", nameof(_s.MagnifierZoom), 2, 16, "倍");

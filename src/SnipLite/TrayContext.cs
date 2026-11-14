@@ -119,17 +119,19 @@ internal sealed class TrayContext : ApplicationContext
             [nameof(_settings.TogglePinsHotkey)] = PinForm.ToggleAll,
             [nameof(_settings.SwitchGroupHotkey)] = PinForm.SwitchGroup,
             [nameof(_settings.MouseThroughHotkey)] = PinForm.ToggleMouseThroughActive,
+            [nameof(_settings.TranslationHotkey)] = () => StartCapture(CaptureMode.Translation),
             [nameof(_settings.OcrHotkey)] = () => StartCapture(CaptureMode.Ocr),
             [nameof(_settings.QrHotkey)] = () => StartCapture(CaptureMode.Qr)
         };
         foreach (var (label, name) in HotkeyDefinitions.Items)
         {
             var binding = (Keys)typeof(AppSettings).GetProperty(name)!.GetValue(_settings)!;
-            if (binding == Keys.None) continue;
+            if (binding == Keys.None || name == nameof(AppSettings.CopyCoordinatesHotkey)) continue;
             uint mods = 0;
             if (binding.HasFlag(Keys.Control)) mods |= HotkeyHost.MOD_CONTROL;
             if (binding.HasFlag(Keys.Alt)) mods |= HotkeyHost.MOD_ALT;
             if (binding.HasFlag(Keys.Shift)) mods |= HotkeyHost.MOD_SHIFT;
+            if (binding.HasFlag(HotkeyDefinitions.WindowsModifier)) mods |= HotkeyHost.MOD_WIN;
             if (_hotkeys.Register(mods, binding & Keys.KeyCode, handlers[name])) continue;
             _settings.HotkeyErrors[name] = "已被其他程序占用";
             Toast.Error($"{label}快捷键 {HotkeyDefinitions.Format(binding)} 已被占用");
@@ -153,16 +155,15 @@ internal sealed class TrayContext : ApplicationContext
             overlay.Done += result =>
             {
                 if (result is null || !result.KeepOpen) if (ReferenceEquals(_overlay, overlay)) _overlay = null;
-                if (result is not null) HandleResult(result, mode, forceCopy);
+                if (result is not null) HandleResult(result, forceCopy);
             };
             overlay.FormClosed += (_, _) => { if (ReferenceEquals(_overlay, overlay)) _overlay = null; };
             overlay.Show();
         }
         catch (Exception ex) { _overlay?.Dispose(); _overlay = null; Program.Report(ex); }
     }
-    private void HandleResult(CaptureResult result, CaptureMode mode, bool forceCopy)
+    private void HandleResult(CaptureResult result, bool forceCopy)
     {
-        if (mode == CaptureMode.Ocr && !result.Pin && result.Action != CaptureAction.Pin) { _ = RunOcrAsync(result.Image); return; }
         var transferred = false;
         try
         {
@@ -193,15 +194,6 @@ internal sealed class TrayContext : ApplicationContext
     {
         Point? point = _settings.PinAtCapturePosition && bounds is Rectangle r ? new Point(r.X + r.Width / 2, r.Y + r.Height / 2) : null;
         var pin = new PinForm(image, point, _settings.PinOpacityPercent, _settings); pin.Show();
-    }
-    private async Task RunOcrAsync(Bitmap image)
-    {
-        using (image)
-        {
-            var text = await Task.Run(() => Services.OcrAsync(image, _settings.OcrLanguage, _settings.OcrEngine));
-            if (string.IsNullOrWhiteSpace(text)) { Toast.Show("没有识别到文字"); return; }
-            try { Clipboard.SetText(text); Toast.Show("文字已复制"); } catch (Exception ex) { Toast.Error("复制失败：" + ex.Message); }
-        }
     }
     private void PasteFromClipboard()
     {

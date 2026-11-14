@@ -56,7 +56,6 @@ internal static class Startup
         catch (Exception ex)
         {
             AppLog.Write("无法修改开机启动项", ex);
-            Toast.Error("开机启动未修改：" + ex.Message);
             return false;
         }
     }

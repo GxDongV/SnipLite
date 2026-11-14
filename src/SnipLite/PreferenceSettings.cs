@@ -99,6 +99,8 @@ internal sealed partial class AppSettings
     public Keys TogglePinsHotkey { get; set; } = Keys.None;
     public Keys SwitchGroupHotkey { get; set; } = Keys.None;
     public Keys MouseThroughHotkey { get; set; } = Keys.None;
+    public Keys CopyCoordinatesHotkey { get; set; } = Keys.Control | Keys.Shift | Keys.C;
+    public Keys TranslationHotkey { get; set; } = Keys.Control | Keys.Alt | Keys.T;
     public Keys OcrHotkey { get; set; } = Keys.Control | Keys.Alt | Keys.O;
     public Keys QrHotkey { get; set; } = Keys.Control | Keys.Alt | Keys.Q;
     public Keys PinZoomModifiers { get; set; } = Keys.None;

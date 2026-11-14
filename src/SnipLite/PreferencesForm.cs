@@ -373,7 +373,60 @@ internal sealed partial class PreferencesForm : Form
     {
         Row("当前版本", MakeStatic(AppInfo.Version));
         Row("发布版本", MakeWebLink(AppInfo.ReleasesUrl));
-        HintText("目前通过本地程序文件更新，设置会自动保留。");
+        var status = MakeStatic("");
+        var check = new FluentButton();
+        var download = new FluentButton();
+        string Local(string text) => UiText.T(text, _s.DisplayLanguage);
+        StyleButton(check, Local("检查更新"));
+        StyleButton(download, Local("下载安装包"));
+        download.Enabled = false;
+        Row("检查更新", check, download);
+        Row("更新状态", status);
+
+        (string Tag, Version Version)? release = null;
+        check.Click += async (_, _) =>
+        {
+            check.Enabled = download.Enabled = false;
+            status.Text = Local("正在检查更新…");
+            try
+            {
+                var latest = await ReleaseUpdates.CheckAsync();
+                if (status.IsDisposed) return;
+                release = latest;
+                var current = Version.Parse(AppInfo.Version.Split('-')[0]);
+                download.Enabled = latest.Version > current ||
+                    latest.Version == current && AppInfo.Version.Contains('-');
+                status.Text = download.Enabled ? $"{Local("发现新版本")} {latest.Tag}" : Local("已是最新版本");
+            }
+            catch (Exception ex)
+            {
+                AppLog.Write("检查更新失败", ex);
+                if (!status.IsDisposed) status.Text = Local("检查更新失败，请重试");
+            }
+            finally { if (!check.IsDisposed) check.Enabled = true; }
+        };
+
+        download.Click += async (_, _) =>
+        {
+            if (release is not { } latest) return;
+            var file = $"SnipLite-{latest.Tag[1..]}-win-x64-setup.exe";
+            using var dialog = new SaveFileDialog { FileName = file, Filter = "Windows installer|*.exe", AddExtension = true };
+            if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+            check.Enabled = download.Enabled = false;
+            status.Text = Local("正在下载安装包…");
+            try
+            {
+                await ReleaseUpdates.DownloadAsync(latest.Tag, file, dialog.FileName);
+                if (!status.IsDisposed) status.Text = Local("已保存安装包，请退出 SnipLite 后运行安装程序");
+            }
+            catch (Exception ex)
+            {
+                AppLog.Write("下载更新失败", ex);
+                if (!status.IsDisposed) status.Text = Local("下载失败，请重试");
+            }
+            finally { if (!check.IsDisposed) check.Enabled = download.Enabled = true; }
+        };
     }
     private void BuildAbout()
     {
@@ -454,16 +507,28 @@ internal sealed partial class PreferencesForm : Form
         Applied?.Invoke();
     }
 
-    private void ResetAll()
+    private async Task<bool> ApplyStartupAsync(bool enabled, bool administrator)
+    {
+        Enabled = false;
+        try
+        {
+            var applied = await Task.Run(() => Startup.TryApply(enabled, administrator));
+            if (!applied && !IsDisposed) Toast.Error("开机启动设置未修改。");
+            return applied;
+        }
+        finally { if (!IsDisposed) Enabled = true; }
+    }
+
+    private async void ResetAll()
     {
         var defaults = AppSettings.Reset();
+        if (_selected == 0 && !await ApplyStartupAsync(defaults.StartWithWindows, defaults.StartAsAdministrator)) return;
+        if (IsDisposed) return;
         foreach (var name in _sectionProperties)
         {
             var property = typeof(AppSettings).GetProperty(name)!;
             property.SetValue(_s, property.GetValue(defaults));
         }
-        if (_selected == 0 && !Startup.TryApply(_s.StartWithWindows, _s.StartAsAdministrator))
-            Toast.Error("开机启动设置未修改，请重试。");
         Font = _s.CreateInterfaceFont();
         Toast.Notifications = _s.ShowToast;
         Persist();

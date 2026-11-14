@@ -7,6 +7,7 @@ internal enum CaptureMode
 {
     Snip,
     Ocr,
+    Translation,
     Qr
 }
 
@@ -34,7 +35,8 @@ internal sealed partial class CaptureForm : Form
 
     private readonly Rectangle _virtual;
     private readonly Bitmap _screenshot;
-    private readonly bool _annotate;
+    private readonly bool _ocrCapture;
+    private readonly bool _translationCapture;
     private readonly bool _qrCaptureOnly;
     private readonly AppSettings _settings;
     private readonly Font _badgeFont;
@@ -122,7 +124,8 @@ internal sealed partial class CaptureForm : Form
     public CaptureForm(Rectangle virtualScreen, CaptureMode mode, AppSettings settings, Rectangle? preset = null)
     {
         _virtual = virtualScreen;
-        _annotate = mode != CaptureMode.Ocr;
+        _ocrCapture = mode == CaptureMode.Ocr;
+        _translationCapture = mode == CaptureMode.Translation;
         _qrCaptureOnly = mode == CaptureMode.Qr;
         _settings = settings;
         _translationProvider = TranslationProviders.Create(settings.TranslationProvider);
@@ -276,7 +279,7 @@ internal sealed partial class CaptureForm : Form
 
             DrawSelection(g, _settings.CaptureAnchors && _hasSelection && !_ocrMode && !_recognitionBusy);
 
-            if (_annotate && _hasSelection)
+            if (_hasSelection)
             {
                 _bar.CanUndo = _undo.Count > 0;
                 _bar.CanRedo = _redo.Count > 0;
@@ -449,7 +452,7 @@ internal sealed partial class CaptureForm : Form
         MagnifierReticle.Draw(g, box, focus, Ui, _settings.Accent);
 
         var pixel = _screenshot.GetPixel(_cursor.X, _cursor.Y);
-        var info = $"({_cursor.X + _virtual.X}, {_cursor.Y + _virtual.Y})\n{ColorValue(pixel)}" + (_settings.MagnifierHints ? "\nC 复制颜色 · Shift 切换 RGB / HEX" : "");
+        var info = $"{CoordinateText()}\n{ColorValue(pixel)}" + (_settings.MagnifierHints ? "\nC 复制颜色 · Shift 切换 RGB / HEX" + (_settings.CopyCoordinatesHotkey == Keys.None ? "" : $"\n{HotkeyDefinitions.Format(_settings.CopyCoordinatesHotkey)} 复制坐标") : "");
         var labelSize = g.MeasureString(info, _badgeFont);
         var label = new Rectangle(Math.Clamp(box.X, 0, Math.Max(0, _virtual.Width - (int)labelSize.Width - 12)), Math.Max(0, box.Y - (int)labelSize.Height - 8), (int)labelSize.Width + 12, (int)labelSize.Height + 6);
         using var labelBack = new SolidBrush(AppTheme.Current.Card);
@@ -500,7 +503,7 @@ internal sealed partial class CaptureForm : Form
             if (command is not null) { ExitRecognition(); Command(command); return; }
             if (_recognitionBusy) return;
             if (_bar.Bounds.Contains(p)) return;
-            _ocrAnchor = _ocrDocument?.HitTest(new PointF(p.X - _ocrCrop.X, p.Y - _ocrCrop.Y), tolerance: 8 * Ui) ?? -1;
+            _ocrAnchor = _ocrDocument?.HitTest(new PointF(p.X - _ocrCrop.X, p.Y - _ocrCrop.Y), tolerance: 16 * Ui) ?? -1;
             _ocrEnd = _ocrAnchor;
             _bar.ResultCopied = false;
             _selectingText = _ocrAnchor >= 0;
@@ -509,7 +512,7 @@ internal sealed partial class CaptureForm : Form
             return;
         }
 
-        if (_annotate && _hasSelection)
+        if (_hasSelection)
         {
             var id = _bar.HitTest(p);
             if (id != null)
@@ -793,7 +796,9 @@ internal sealed partial class CaptureForm : Form
             }
 
             Invalidate();
-            if (_qrCaptureOnly && _hasSelection) _ = RecognizeSelectionAsync(ocr: false);
+            if (_translationCapture && _hasSelection && !TranslationVisible) _ = TranslateSelectionAsync();
+            else if (_ocrCapture && _hasSelection) _ = RecognizeSelectionAsync(ocr: true);
+            else if (_qrCaptureOnly && _hasSelection) _ = RecognizeSelectionAsync(ocr: false);
             else RefreshTranslationSelection();
             return;
         }
@@ -808,7 +813,9 @@ internal sealed partial class CaptureForm : Form
             _dragMode = 0;
             Capture = false;
             Invalidate();
-            if (_qrCaptureOnly && _hasSelection) _ = RecognizeSelectionAsync(ocr: false);
+            if (_translationCapture && _hasSelection && !TranslationVisible) _ = TranslateSelectionAsync();
+            else if (_ocrCapture && _hasSelection) _ = RecognizeSelectionAsync(ocr: true);
+            else if (_qrCaptureOnly && _hasSelection) _ = RecognizeSelectionAsync(ocr: false);
             else RefreshTranslationSelection();
         }
     }
@@ -834,7 +841,7 @@ internal sealed partial class CaptureForm : Form
         // A double-click on the toolbar is the user cycling the line width (or
         // picking two colours in a row), not "copy this selection" — committing
         // here used to close the overlay right after the first real click.
-        if (_annotate && _bar.HitTest(p) != null) return;
+        if (_bar.HitTest(p) != null) return;
 
         // Same for the dimmed desktop outside the selection.
         if (!_selection.Contains(p)) return;
@@ -844,6 +851,13 @@ internal sealed partial class CaptureForm : Form
 
     protected override bool ProcessCmdKey(ref Message m, Keys keyData)
     {
+        if (_ime is null && keyData != Keys.None && HotkeyDefinitions.WithWindowsKey(keyData) == _settings.CopyCoordinatesHotkey)
+        {
+            _cursor = CursorToLocal();
+            try { Clipboard.SetText(CoordinateText()); Toast.Show("坐标已复制"); }
+            catch (Exception ex) { Toast.Error("复制失败：" + ex.Message); }
+            return true;
+        }
         // RegisterHotKey normally routes this through TrayContext. Also handle
         // the configured key locally when the global registration is disabled.
         if (keyData != Keys.None && keyData == _settings.PinHotkey)
@@ -860,7 +874,7 @@ internal sealed partial class CaptureForm : Form
         if (_ocrMode || _recognitionBusy)
         {
             if (keyData == Keys.Escape) { ExitRecognition(); return true; }
-            if (!_recognitionBusy && keyData == (Keys.Control | Keys.C)) { CopyOcrText(); return true; }
+            if (!_recognitionBusy && keyData == (Keys.Control | Keys.C)) { CopyOcrText(allIfUnselected: true); return true; }
             if (!_recognitionBusy && keyData == (Keys.Control | Keys.A) && _ocrDocument is not null)
             {
                 _ocrAnchor = 0;
@@ -922,7 +936,8 @@ internal sealed partial class CaptureForm : Form
 
         if (keyData == Keys.Enter)
         {
-            if (_qrCaptureOnly) { _ = RecognizeSelectionAsync(ocr: false); return true; }
+            if (_translationCapture) { if (!TranslationVisible) _ = TranslateSelectionAsync(); return true; }
+            if (_ocrCapture || _qrCaptureOnly) { _ = RecognizeSelectionAsync(ocr: _ocrCapture); return true; }
             ExecuteAction(_settings.EnterAction, _settings.EnterExit);
             return true;
         }
@@ -969,14 +984,14 @@ internal sealed partial class CaptureForm : Form
             return true;
         }
 
-        if (_annotate && _hasSelection && keyData == Keys.R) { SetTool(ToolKind.Rectangle); return true; }
-        if (_annotate && _hasSelection && keyData == Keys.E) { SetTool(ToolKind.Ellipse); return true; }
-        if (_annotate && _hasSelection && keyData == Keys.A) { SetTool(ToolKind.Arrow); return true; }
-        if (_annotate && _hasSelection && keyData == Keys.P) { SetTool(ToolKind.Pen); return true; }
-        if (_annotate && _hasSelection && keyData == Keys.H) { SetTool(ToolKind.Marker); return true; }
-        if (_annotate && _hasSelection && keyData == Keys.X) { SetTool(ToolKind.Eraser); return true; }
-        if (_annotate && _hasSelection && keyData == Keys.T) { SetTool(ToolKind.Text); return true; }
-        if (_annotate && _hasSelection && keyData == Keys.M) { SetTool(ToolKind.Mosaic); return true; }
+        if (_hasSelection && keyData == Keys.R) { SetTool(ToolKind.Rectangle); return true; }
+        if (_hasSelection && keyData == Keys.E) { SetTool(ToolKind.Ellipse); return true; }
+        if (_hasSelection && keyData == Keys.A) { SetTool(ToolKind.Arrow); return true; }
+        if (_hasSelection && keyData == Keys.P) { SetTool(ToolKind.Pen); return true; }
+        if (_hasSelection && keyData == Keys.H) { SetTool(ToolKind.Marker); return true; }
+        if (_hasSelection && keyData == Keys.X) { SetTool(ToolKind.Eraser); return true; }
+        if (_hasSelection && keyData == Keys.T) { SetTool(ToolKind.Text); return true; }
+        if (_hasSelection && keyData == Keys.M) { SetTool(ToolKind.Mosaic); return true; }
 
         if ((keyData & Keys.KeyCode) == Keys.C && (keyData & Keys.Control) == 0)
         {
@@ -1165,6 +1180,12 @@ internal sealed partial class CaptureForm : Form
     {
         _bar.FontFamily = text.FontFamily; _bar.FontSize = text.FontSize;
         _bar.Bold = text.Bold; _bar.Italic = text.Italic; _bar.Color = text.Color;
+    }
+
+    private string CoordinateText()
+    {
+        var absolute = $"屏幕 ({_cursor.X + _virtual.X}, {_cursor.Y + _virtual.Y})";
+        return _hasSelection ? $"{absolute}\n选区 ({_cursor.X - _selection.X}, {_cursor.Y - _selection.Y})" : absolute;
     }
 
     private string ColorValue(Color color) => _settings.FormatColor(color, _hexColor);
@@ -1520,7 +1541,11 @@ internal sealed partial class CaptureForm : Form
         {
             var bounds = _ocrDocument.Characters[i].Bounds;
             bounds.Offset(_ocrCrop.Location);
-            if (start >= 0 && i >= start && i <= end) g.FillRectangle(fill, bounds);
+            if (start >= 0 && i >= start && i <= end)
+            {
+                bounds.Inflate(Math.Max(1, bounds.Height * .12f), Math.Max(1, Ui));
+                g.FillRectangle(fill, bounds);
+            }
             else g.DrawLine(line, bounds.Left, bounds.Bottom, bounds.Right, bounds.Bottom);
         }
     }
@@ -2095,11 +2120,11 @@ internal sealed partial class CaptureForm : Form
         if (_ocrMode)
         {
             Cursor = _bar.Bounds.Contains(_cursor) ? Cursors.Hand
-                : _ocrDocument?.HitTest(new PointF(_cursor.X - _ocrCrop.X, _cursor.Y - _ocrCrop.Y), tolerance: 8 * Ui) >= 0
+                : _ocrDocument?.HitTest(new PointF(_cursor.X - _ocrCrop.X, _cursor.Y - _ocrCrop.Y), tolerance: 16 * Ui) >= 0
                     ? Cursors.IBeam : Cursors.Default;
             return;
         }
-        if (_annotate && _hasSelection && _barVisible && _bar.Bounds.Contains(_cursor))
+        if (_hasSelection && _barVisible && _bar.Bounds.Contains(_cursor))
         {
             Cursor = Cursors.Hand;
             return;
@@ -2123,7 +2148,7 @@ internal sealed partial class CaptureForm : Form
                 SetTextCursor(hitText);
                 return;
             }
-            if (_annotate && _bar.Tool != ToolKind.None && _selection.Contains(_cursor))
+            if (_bar.Tool != ToolKind.None && _selection.Contains(_cursor))
             {
                 Cursor = Cursors.Cross;
                 return;
