@@ -2,8 +2,7 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')).TrimEnd('\', '/')
 $targets = @(
     'artifacts', 'bin', 'obj',
-    'src\SnipLite\bin', 'src\SnipLite\obj',
-    'tests\SnipLite.SelfTest\bin', 'tests\SnipLite.SelfTest\obj'
+    'src\SnipLite\bin', 'src\SnipLite\obj'
 )
 foreach ($relativePath in $targets) {
     $targetPath = [IO.Path]::GetFullPath((Join-Path $projectRoot $relativePath))

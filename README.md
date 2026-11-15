@@ -38,7 +38,7 @@ dotnet build SnipLite.slnx -c Release
 dotnet run --project src/SnipLite/SnipLite.csproj -c Release --no-build
 ```
 
-也可双击仓库根目录的 `启动最新版.cmd`，脚本会先构建再启动。启动后程序常驻系统托盘，右键图标可打开首选项或退出；默认没有主窗口。
+启动后程序常驻系统托盘，右键图标可打开首选项或退出；默认没有主窗口。
 
 ### 运行发布包
 
@@ -161,13 +161,12 @@ dotnet build SnipLite.slnx -c Release
 ```text
 SnipLite.slnx
 src/SnipLite/             正式程序：截图、标注、识别、贴图与首选项
-tests/SnipLite.SelfTest/  独立的 Windows 桌面回归与渲染诊断程序
 scripts/                 发布与清理脚本
 docs/                    开发说明
 licenses/                第三方许可证与声明
 ```
 
-测试程序与正式程序分开构建，发布包不包含测试入口、测试图片或实测报告。开发与验证方法见 [开发说明](docs/DEVELOPMENT.md)。
+构建和发布流程见 [开发说明](docs/DEVELOPMENT.md)。
 
 
 ## 参与开发
