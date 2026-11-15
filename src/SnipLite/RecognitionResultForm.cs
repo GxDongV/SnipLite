@@ -24,7 +24,7 @@ internal sealed class RecognitionResultForm : Form
     public RecognitionResultForm(string result)
     {
         _result = result;
-        Text = "识别结果";
+        Text = UiText.T("识别结果");
         Font = new Font("Microsoft YaHei UI", 9.5f);
         AutoScaleMode = AutoScaleMode.None;
         BackColor = Color.White;
@@ -42,8 +42,8 @@ internal sealed class RecognitionResultForm : Form
         _header = new Panel { BackColor = Color.White };
         _icon = new Panel { BackColor = Color.FromArgb(234, 245, 255) };
         _icon.Paint += DrawQrIcon;
-        _title = new Label { Text = "识别成功", Font = new Font(Font.FontFamily, 15f, FontStyle.Bold) };
-        _subtitle = new Label { Text = "二维码 / 条码内容", ForeColor = Muted };
+        _title = new Label { Text = UiText.T("识别成功"), Font = new Font(Font.FontFamily, 15f, FontStyle.Bold) };
+        _subtitle = new Label { Text = UiText.T("二维码 / 条码内容"), ForeColor = Muted };
         _header.Controls.AddRange(new Control[] { _icon, _title, _subtitle });
 
         _card = new Panel { BackColor = Color.FromArgb(247, 249, 252) };
@@ -54,24 +54,24 @@ internal sealed class RecognitionResultForm : Form
             using var path = FluentDrawing.Rounded(new RectangleF(.5f, .5f, _card.Width - 1, _card.Height - 1), Px(8));
             e.Graphics.DrawPath(border, path);
         };
-        _kind = new Label { Text = isLink ? "链接" : "文本内容", ForeColor = Muted };
-        _count = new Label { Text = $"{new System.Globalization.StringInfo(result).LengthInTextElements:N0} 字符", ForeColor = Muted, TextAlign = ContentAlignment.TopRight };
+        _kind = new Label { Text = isLink ? UiText.T("链接") : UiText.T("文本内容"), ForeColor = Muted };
+        _count = new Label { Text = Localization.LanguageService.Format("{0:N0} 字符", new System.Globalization.StringInfo(result).LengthInTextElements), ForeColor = Muted, TextAlign = ContentAlignment.TopRight };
         _content = new TextBox
         {
             Text = result, Multiline = true, ReadOnly = true,
             ScrollBars = ScrollBars.None, WordWrap = true, Font = Font,
             BackColor = _card.BackColor, ForeColor = Ink,
             BorderStyle = BorderStyle.None, HideSelection = false,
-            TabIndex = 2, AccessibleName = "识别内容"
+            TabIndex = 2, AccessibleName = UiText.T("识别内容")
         };
         _card.Controls.AddRange(new Control[] { _kind, _count, _content });
-        _close = ActionButton("关闭", false);
+        _close = ActionButton(UiText.T("关闭"), false);
         _close.DialogResult = DialogResult.Cancel;
         _close.TabIndex = 1;
-        _copy = ActionButton("复制内容", true);
+        _copy = ActionButton(UiText.T("复制内容"), true);
         _copy.TabIndex = 0;
         _copy.Click += (_, _) => CopyResult();
-        _status = new Label { Text = "Esc 关闭", ForeColor = Muted, TextAlign = ContentAlignment.MiddleLeft };
+        _status = new Label { Text = UiText.T("Esc 关闭"), ForeColor = Muted, TextAlign = ContentAlignment.MiddleLeft };
 
         Controls.AddRange(new Control[] { _header, _card, _status, _close, _copy });
         AcceptButton = _copy;
@@ -162,13 +162,13 @@ internal sealed class RecognitionResultForm : Form
         try
         {
             Clipboard.SetText(_result);
-            _copy.Text = "已复制";
-            _status.Text = "已复制到剪贴板";
+            _copy.Text = UiText.T("已复制");
+            _status.Text = UiText.T("已复制到剪贴板");
             _status.ForeColor = Color.FromArgb(30, 132, 88);
         }
         catch
         {
-            _status.Text = "复制失败，请重试";
+            _status.Text = UiText.T("复制失败，请重试");
             _status.ForeColor = Color.FromArgb(190, 62, 57);
         }
     }

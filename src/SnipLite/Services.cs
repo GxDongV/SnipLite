@@ -67,7 +67,7 @@ internal static partial class Services
             engine ??= OcrEngine.TryCreateFromUserProfileLanguages();
 
             if (engine is null)
-                throw new InvalidOperationException("OCR 引擎不可用，请在 Windows 语言设置中安装对应的识别语言包。");
+                throw new InvalidOperationException(UiText.T("OCR 引擎不可用，请在 Windows 语言设置中安装对应的识别语言包。"));
 
             var result = await engine.RecognizeAsync(software);
             var sx = (float)bitmap.Width / software.PixelWidth;

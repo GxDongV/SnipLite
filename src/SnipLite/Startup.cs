@@ -84,7 +84,7 @@ internal static class Startup
             dynamic folder = scheduler.GetFolder("\\");
             if (!enabled) { folder.DeleteTask(TaskName, 0); return 0; }
             dynamic definition = scheduler.NewTask(0);
-            definition.RegistrationInfo.Description = "在当前用户登录时启动 SnipLite";
+            definition.RegistrationInfo.Description = UiText.T("在当前用户登录时启动 SnipLite");
             definition.Principal.UserId = System.Security.Principal.WindowsIdentity.GetCurrent().Name;
             definition.Principal.LogonType = 3; // InteractiveToken, no password stored.
             definition.Principal.RunLevel = 1; // HighestAvailable; registration is explicitly elevated.

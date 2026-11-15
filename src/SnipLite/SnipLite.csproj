@@ -13,7 +13,7 @@
     <ApplicationIcon>../../logo/SnipLite.ico</ApplicationIcon>
     <AssemblyName>SnipLite</AssemblyName>
     <RootNamespace>SnipLite</RootNamespace>
-    <Version>0.3.12</Version>
+    <Version>0.3.13</Version>
     <Description>A Windows screenshot and pinning tool with local OCR and barcode recognition.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/GxDongV/SnipLite</RepositoryUrl>
@@ -23,6 +23,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Localization/Resources/*.json" LogicalName="SnipLite.Localization.%(Filename).json" />
     <InternalsVisibleTo Include="SnipLite.SelfTest" />
     <EmbeddedResource Include="../../logo/SnipLite.ico" LogicalName="SnipLite.AppIcon.ico" />
     <EmbeddedResource Include="Assets/PaperFold.wav" LogicalName="SnipLite.PaperFold.wav" />

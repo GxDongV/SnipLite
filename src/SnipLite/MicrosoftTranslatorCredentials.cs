@@ -28,7 +28,7 @@ internal sealed class MicrosoftTranslatorCredentials(string key, string region)
         }
         catch (Exception ex) when (ex is CryptographicException or JsonException or IOException or UnauthorizedAccessException)
         {
-            throw new InvalidOperationException("无法读取微软翻译密钥，请在首选项中重新配置。");
+            throw new InvalidOperationException(UiText.T("无法读取微软翻译密钥，请在首选项中重新配置。"));
         }
     }
 

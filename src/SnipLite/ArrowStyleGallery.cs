@@ -15,7 +15,7 @@ internal sealed class ArrowStyleGallery : Control
     {
         _scale = scale; _selected = selected; DoubleBuffered = true;
         Size = new Size((int)Math.Round(220 * scale), RowHeight * Styles.Length);
-        BackColor = SnipMenuRenderer.Back; Margin = Padding.Empty; AccessibleName = "箭头样式";
+        BackColor = SnipMenuRenderer.Back; Margin = Padding.Empty; AccessibleName = UiText.T("箭头样式");
     }
     protected override void OnPaint(PaintEventArgs e)
     {
@@ -44,7 +44,7 @@ internal sealed class ArrowStyleGallery : Control
     {
         var row = Math.Clamp(e.Y / RowHeight, 0, Styles.Length - 1);
         if (_hover == row) return;
-        _hover = row; _hint.SetToolTip(this, Names[row]); Invalidate();
+        _hover = row; _hint.SetToolTip(this, UiText.T(Names[row])); Invalidate();
     }
     protected override void OnMouseLeave(EventArgs e) { _hover = -1; Invalidate(); base.OnMouseLeave(e); }
     protected override void OnMouseUp(MouseEventArgs e)

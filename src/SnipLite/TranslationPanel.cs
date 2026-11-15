@@ -22,6 +22,7 @@ internal sealed class TranslationPanel : UserControl
     private readonly Font _smallFont;
     private readonly ToolTip _tips = new();
     private string _originalText = "";
+    private Func<string>? _statusText;
 
     public string SourceLanguage { get; private set; }
     public string TargetLanguage { get; private set; }
@@ -50,18 +51,33 @@ internal sealed class TranslationPanel : UserControl
         _source = MakeDropdown("源语言", () => ShowLanguages(true));
         _target = MakeDropdown("目标语言", () => ShowLanguages(false));
         _swap = MakeIconButton("交换源语言和目标语言", SwapLanguages, DrawSwapIcon);
-        _tips.SetToolTip(_swap, "交换源语言和目标语言");
+        _tips.SetToolTip(_swap, UiText.T("交换源语言和目标语言"));
         _view = MakeIconButton("切换原文 / 译文", ToggleView, DrawViewIcon);
         _copy = MakeIconButton("复制识别文字", CopyText, DrawCopyIcon);
         _retry = MakeIconButton("重新翻译", () => RetryRequested?.Invoke(), DrawRetryIcon);
-        _tips.SetToolTip(_retry, "重新翻译");
+        _tips.SetToolTip(_retry, UiText.T("重新翻译"));
         _providerButton = MakeDropdown("翻译服务", ShowProviders);
-        _tips.SetToolTip(_providerButton, "切换本次截图的翻译服务");
+        _tips.SetToolTip(_providerButton, UiText.T("切换本次截图的翻译服务"));
         _status = new Label { ForeColor = AppTheme.Current.Muted, Font = _smallFont, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
         Controls.Add(_status);
         Width = Px(680); Height = Px(44);
-        SetProvider(provider); SetBusy("正在识别…");
+        SetProvider(provider); SetBusy(() => UiText.T("正在识别…"));
         AppTheme.Changed += ApplyTheme;
+        Localization.LanguageService.Changed += RefreshLanguage;
+    }
+
+    private void RefreshLanguage()
+    {
+        if (IsDisposed) return;
+        UpdateLanguages();
+        _providerButton.Text = TranslationProviders.Label(Provider);
+        foreach (var button in Controls.OfType<Button>())
+            if (button.Tag is string source) button.AccessibleName = UiText.T(source);
+        _tips.SetToolTip(_swap, UiText.T("交换源语言和目标语言"));
+        _tips.SetToolTip(_providerButton, UiText.T("切换本次截图的翻译服务"));
+        _tips.SetToolTip(_retry, UiText.T("重新翻译"));
+        if (_statusText is not null) { _status.Text = _statusText(); _tips.SetToolTip(_status, _status.Text); }
+        RefreshView();
     }
 
     private void ApplyTheme()
@@ -97,7 +113,8 @@ internal sealed class TranslationPanel : UserControl
     private Button MakeIconButton(string label, Action click, Action<Graphics, Rectangle, bool> draw)
     {
         var button = MakeButton(click);
-        button.AccessibleName = label;
+        button.Tag = label;
+        button.AccessibleName = UiText.T(label);
         button.Paint += (_, e) =>
         {
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
@@ -109,7 +126,8 @@ internal sealed class TranslationPanel : UserControl
     private Button MakeDropdown(string label, Action click)
     {
         var button = MakeButton(click);
-        button.AccessibleName = label;
+        button.Tag = label;
+        button.AccessibleName = UiText.T(label);
         button.TextAlign = ContentAlignment.MiddleLeft;
         button.Padding = new Padding(Px(8), 0, Px(24), 0);
         button.AutoEllipsis = true;
@@ -234,11 +252,13 @@ internal sealed class TranslationPanel : UserControl
         var sourceLabel = TranslationLanguages.Name(SourceLanguage);
         if (SourceLanguage == "auto")
         {
-            if (!AllowAutoSource) sourceLabel = "选择源语言";
-            else if (DetectedLanguage is not null) sourceLabel = "检测到" + TranslationLanguages.Name(DetectedLanguage);
+            if (!AllowAutoSource) sourceLabel = UiText.T("选择源语言");
+            else if (DetectedLanguage is not null) sourceLabel = UiText.T("检测到") + TranslationLanguages.Name(DetectedLanguage);
         }
         _source.Text = sourceLabel;
         _target.Text = TranslationLanguages.Name(TargetLanguage);
+        _tips.SetToolTip(_source, _source.Text);
+        _tips.SetToolTip(_target, _target.Text);
     }
 
     internal void ShowLanguages(bool source)
@@ -292,42 +312,46 @@ internal sealed class TranslationPanel : UserControl
         _view.Enabled = _copy.Enabled = _retry.Enabled = false;
         _status.ForeColor = AppTheme.Current.Muted; SetStatus(status); RefreshView();
     }
-    public void SetProgress(int completed, int total) => SetStatus($"翻译中 {completed}/{total}");
+    public void SetBusy(Func<string> status) { SetBusy(status()); _statusText = status; }
+    public void SetProgress(int completed, int total) => SetStatus(() => Localization.LanguageService.Format("翻译中 {0}/{1}", completed, total));
     public void SetResult(TranslationResult result)
     {
         ResultText = result.Text; DetectedLanguage = result.DetectedLanguage;
         _view.Enabled = _copy.Enabled = _retry.Enabled = true;
-        SetStatus("已翻译"); _tips.SetToolTip(_retry, "重新翻译");
+        SetStatus(() => UiText.T("已翻译")); _tips.SetToolTip(_retry, UiText.T("重新翻译"));
         UpdateLanguages(); RefreshView();
     }
     public void SetError(string error)
     {
         ResultText = ""; _view.Enabled = _copy.Enabled = false; _retry.Enabled = true;
         _status.ForeColor = AppTheme.Current.Dark ? Color.FromArgb(255, 160, 155) : Color.FromArgb(178, 48, 42); SetStatus(error);
-        _tips.SetToolTip(_retry, "重试翻译"); RefreshView();
+        _tips.SetToolTip(_retry, UiText.T("重试翻译")); RefreshView();
     }
+    public void SetError(Func<string> error) { SetError(error()); _statusText = error; }
+    internal void SetStatus(Func<string> status) { SetStatus(status()); _statusText = status; }
     internal void SetStatus(string status)
     {
+        _statusText = null;
         _status.Text = status; _tips.SetToolTip(_status, status);
     }
     internal void ToggleView()
     {
         if (!_view.Enabled) return;
-        ShowOriginal = !ShowOriginal; SetStatus(ShowOriginal ? "显示原文" : "已翻译");
+        ShowOriginal = !ShowOriginal; SetStatus(() => ShowOriginal ? UiText.T("显示原文") : UiText.T("已翻译"));
         RefreshView(); ViewChanged?.Invoke();
     }
     private void RefreshView()
     {
         _view.BackColor = ShowOriginal ? SnipMenuRenderer.Hover : Surface;
-        _tips.SetToolTip(_view, ShowOriginal ? "查看译文（当前显示原文）" : "查看原文（当前显示译文）");
-        _tips.SetToolTip(_copy, ShowOriginal ? "复制原文" : "复制译文");
+        _tips.SetToolTip(_view, ShowOriginal ? UiText.T("查看译文（当前显示原文）") : UiText.T("查看原文（当前显示译文）"));
+        _tips.SetToolTip(_copy, ShowOriginal ? UiText.T("复制原文") : UiText.T("复制译文"));
         _view.Invalidate(); _copy.Invalidate();
     }
     public void CopyText()
     {
         var text = ShowOriginal ? _originalText : ResultText; if (string.IsNullOrEmpty(text)) return;
-        try { Clipboard.SetText(text); SetStatus(ShowOriginal ? "原文已复制" : "译文已复制"); }
-        catch { SetStatus("复制失败，请重试"); }
+        try { Clipboard.SetText(text); SetStatus(() => ShowOriginal ? UiText.T("原文已复制") : UiText.T("译文已复制")); }
+        catch { SetStatus(() => UiText.T("复制失败，请重试")); }
     }
     public void CloseMenus() { foreach (var menu in _menus) if (menu.Visible) menu.Close(); }
 
@@ -336,6 +360,7 @@ internal sealed class TranslationPanel : UserControl
         if (disposing)
         {
             AppTheme.Changed -= ApplyTheme;
+            Localization.LanguageService.Changed -= RefreshLanguage;
             CloseMenus(); var menus = _menus.ToArray(); _menus.Clear();
             var context = SynchronizationContext.Current;
             if (context is not null) context.Post(_ => { foreach (var menu in menus) menu.Dispose(); }, null);

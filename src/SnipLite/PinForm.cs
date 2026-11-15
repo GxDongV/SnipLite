@@ -46,7 +46,7 @@ internal sealed class PinForm : Form
     {
         _image = image; _settings = settings ?? AppSettings.Load(); _pinGroup = _group;
         FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; StartPosition = FormStartPosition.Manual;
-        TopMost = true; DoubleBuffered = true; BackColor = Color.Black; KeyPreview = true; Text = "SnipLite 贴图";
+        TopMost = true; DoubleBuffered = true; BackColor = Color.Black; KeyPreview = true; Text = UiText.T("SnipLite 贴图");
         Font = _settings.CreateInterfaceFont(); _opacity = Math.Clamp(opacityPercent, 10, 100) / 100d; Opacity = _opacity;
         var anchor = screenPoint ?? Win32.CursorPosition();
         _scale = Math.Min(1, _settings.PinMaxSize / (float)Math.Max(image.Width, image.Height));
@@ -72,6 +72,7 @@ internal sealed class PinForm : Form
     {
         foreach (var pin in Open.ToArray())
         {
+            pin.Text = UiText.T("SnipLite 贴图");
             pin.Font = pin._settings.CreateInterfaceFont(); pin.UpdateShadow(); pin.Invalidate();
             var previous = pin.ContextMenuStrip; pin.ContextMenuStrip = pin.BuildMenu();
             if (previous is not null) SynchronizationContext.Current?.Post(_ => previous.Dispose(), null);
@@ -94,12 +95,12 @@ internal sealed class PinForm : Form
             if (pin._pinGroup == _group) { pin.Show(); if (pin._settings.FlashOnGroupSwitch) pin.Flash(); }
             else pin.Hide();
         }
-        Toast.Show($"贴图分组 {_group}");
+        Toast.Show(Localization.LanguageService.Format("贴图分组 {0}", _group));
     }
     public static void ToggleMouseThroughActive()
     {
         var pin = Open.LastOrDefault(pin => pin.ContainsFocus) ?? Open.LastOrDefault(pin => pin.Visible);
-        if (pin is null) { Toast.Show("当前没有贴图"); return; }
+        if (pin is null) { Toast.Show(UiText.T("当前没有贴图")); return; }
         pin.ToggleMouseThrough();
     }
     public static bool RestoreHidden()
@@ -309,18 +310,18 @@ internal sealed class PinForm : Form
         _mouseThrough = !_mouseThrough;
         var style = GetWindowLongPtr(Handle, -20).ToInt64();
         SetWindowLongPtr(Handle, -20, new IntPtr(_mouseThrough ? style | 0x20 : style & ~0x20));
-        Toast.Show(_mouseThrough ? "贴图鼠标穿透已启用，可用全局快捷键关闭" : "贴图鼠标穿透已关闭");
+        Toast.Show(_mouseThrough ? UiText.T("贴图鼠标穿透已启用，可用全局快捷键关闭") : UiText.T("贴图鼠标穿透已关闭"));
     }
     private void Copy()
     {
-        try { Services.CopyImage(_image, _settings.PinBitmapClipboard); Toast.Show("图像已复制"); }
-        catch (Exception ex) { Toast.Error("复制失败：" + ex.Message); }
+        try { Services.CopyImage(_image, _settings.PinBitmapClipboard); Toast.Show(UiText.T("图像已复制")); }
+        catch (Exception ex) { Toast.Error(UiText.T("复制失败：") + ex.Message); }
     }
     private void SaveAs()
     {
         using var dialog = new SaveFileDialog
         {
-            Filter = "PNG 图片|*.png|JPEG 图片|*.jpg", FileName = Services.ImageFileName(_settings, _settings.RememberImageExtension ? _settings.LastImageExtension : ".png"),
+            Filter = UiText.T("PNG 图片|*.png|JPEG 图片|*.jpg"), FileName = Services.ImageFileName(_settings, _settings.RememberImageExtension ? _settings.LastImageExtension : ".png"),
             FilterIndex = _settings.RememberImageExtension && _settings.LastImageExtension != ".png" ? 2 : 1
         };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
@@ -328,22 +329,22 @@ internal sealed class PinForm : Form
         {
             Services.SaveImage(_image, dialog.FileName, dialog.FilterIndex == 2, _settings.JpegQuality);
             if (_settings.RememberImageExtension) { _settings.LastImageExtension = dialog.FilterIndex == 2 ? ".jpg" : ".png"; _settings.Save(); }
-            Toast.Show("已保存：" + Path.GetFileName(dialog.FileName));
+            Toast.Show(UiText.T("已保存：") + Path.GetFileName(dialog.FileName));
         }
-        catch (Exception ex) { Toast.Error("保存失败：" + ex.Message); }
+        catch (Exception ex) { Toast.Error(UiText.T("保存失败：") + ex.Message); }
     }
     private async Task RecognizeText()
     {
         using var snapshot = new Bitmap(_image);
         var text = await Task.Run(() => Services.OcrAsync(snapshot, _settings.OcrLanguage, _settings.OcrEngine));
-        if (string.IsNullOrWhiteSpace(text)) { Toast.Show("没有识别到文字"); return; }
-        try { Clipboard.SetText(text); Toast.Show("文字已复制"); } catch { Toast.Error("复制失败，请重试"); }
+        if (string.IsNullOrWhiteSpace(text)) { Toast.Show(UiText.T("没有识别到文字")); return; }
+        try { Clipboard.SetText(text); Toast.Show(UiText.T("文字已复制")); } catch { Toast.Error(UiText.T("复制失败，请重试")); }
     }
     private async void ScanQr()
     {
         using var snapshot = new Bitmap(_image); var text = await Task.Run(() => Services.DecodeQr(snapshot));
         if (IsDisposed) return;
-        if (string.IsNullOrEmpty(text)) { Toast.Show("没有检测到二维码 / 条码"); return; }
+        if (string.IsNullOrEmpty(text)) { Toast.Show(UiText.T("没有检测到二维码 / 条码")); return; }
         using var dialog = new RecognitionResultForm(text); dialog.ShowDialog(this);
     }
     private ContextMenuStrip BuildMenu()
@@ -354,8 +355,8 @@ internal sealed class PinForm : Form
         menu.Items.Add(Item("识别文字", () => _ = RecognizeText())); menu.Items.Add(Item("识别二维码", ScanQr));
         menu.Items.Add(new ToolStripSeparator()); menu.Items.Add(Item("原始大小", Reset, "Ctrl+0"));
         menu.Items.Add(Item("快速缩略图", ToggleThumbnail)); menu.Items.Add(Item("鼠标穿透开关", ToggleMouseThrough));
-        var groups = new ToolStripMenuItem("移动到分组");
-        for (var i = 1; i <= 3; i++) { var group = i; groups.DropDownItems.Add(Item("分组 " + group, () => { _pinGroup = group; if (_pinGroup != _group) Hide(); })); }
+        var groups = new ToolStripMenuItem(UiText.T("移动到分组"));
+        for (var i = 1; i <= 3; i++) { var group = i; groups.DropDownItems.Add(Item(Localization.LanguageService.Format("分组 {0}", group), () => { _pinGroup = group; if (_pinGroup != _group) Hide(); })); }
         menu.Items.Add(groups); menu.Items.Add(Item("关闭", Close, "Esc")); menu.Items.Add(Item("关闭全部贴图", CloseAll));
         menu.Items.Add(Item("隐藏 / 显示所有贴图", ToggleAll)); menu.Items.Add(Item("恢复 100% 不透明度", () => { _opacity = 1; Opacity = 1; }));
         UiText.Apply(menu, _settings.DisplayLanguage); return menu;

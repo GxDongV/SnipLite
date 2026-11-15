@@ -19,7 +19,7 @@ internal sealed class FontFamilyList : ListBox
         ScrollAlwaysVisible = true;
         DrawMode = DrawMode.OwnerDrawFixed;
         ItemHeight = (int)Math.Round(28 * scale);
-        AccessibleName = "选择字体";
+        AccessibleName = UiText.T("选择字体");
 
         var families = FontFamily.Families;
         BeginUpdate();

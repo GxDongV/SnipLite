@@ -6,6 +6,7 @@ internal sealed class TrayContext : ApplicationContext
     private readonly NotifyIcon _tray;
     private readonly HotkeyHost _hotkeys = new();
     private readonly ThemeMonitor _themeMonitor = new();
+    private readonly Localization.LanguageMonitor _languageMonitor;
     private readonly CaptureHistory _history = new();
     private CaptureForm? _overlay;
     private PreferencesForm? _prefs;
@@ -17,10 +18,13 @@ internal sealed class TrayContext : ApplicationContext
     public TrayContext(bool captureOnStart = false, int openPreferencesTab = -1, bool openMenu = false)
     {
         _settings = AppSettings.Load();
+        Localization.LanguageService.Configure(_settings.DisplayLanguage);
         _tray = new NotifyIcon { Icon = TrayIcons.Create(_settings), Text = "SnipLite", Visible = true };
         AppTheme.Changed += RefreshTheme;
         _tray.DoubleClick += (_, _) => StartCapture(CaptureMode.Snip);
         ApplySettings();
+        _languageMonitor = new Localization.LanguageMonitor(ApplySettings);
+        _languageMonitor.Start();
         void Once(Action action)
         {
             var timer = new System.Windows.Forms.Timer { Interval = 250 };
@@ -52,14 +56,14 @@ internal sealed class TrayContext : ApplicationContext
             menu.Items.Add(SnipMenu.Item("切换到另一贴图分组", PinForm.SwitchGroup, HotkeyDefinitions.Format(_settings.SwitchGroupHotkey)));
             menu.Items.Add(SnipMenu.Item("恢复历史贴图", () => PinForm.RestoreLast(_settings)));
             menu.Items.Add(SnipMenu.Item("关闭全部贴图", PinForm.CloseAll));
-            var history = new ToolStripMenuItem("截屏历史");
+            var history = new ToolStripMenuItem(UiText.T("截屏历史"));
             history.DropDownOpening += (_, _) =>
             {
                 foreach (ToolStripItem item in history.DropDownItems) item.Dispose();
                 history.DropDownItems.Clear();
                 foreach (var entry in _history.Entries)
                     history.DropDownItems.Add(SnipMenu.Item(entry.Label, () => PinImage(entry.Image(), entry.Bounds)));
-                if (history.DropDownItems.Count == 0) history.DropDownItems.Add(new ToolStripMenuItem("暂无截屏历史") { Enabled = false });
+                if (history.DropDownItems.Count == 0) history.DropDownItems.Add(new ToolStripMenuItem(UiText.T("暂无截屏历史")) { Enabled = false });
             };
             menu.Items.Add(history);
             menu.Items.Add(SnipMenu.Item("清空截屏历史", _history.Clear));
@@ -91,11 +95,12 @@ internal sealed class TrayContext : ApplicationContext
     }
     private void ApplySettings()
     {
+        Localization.LanguageService.Configure(_settings.DisplayLanguage);
         Toast.Notifications = _settings.ShowToast; AppLog.Level = _settings.LogLevel;
         var icon = TrayIcons.Create(_settings); var oldIcon = _tray.Icon; _tray.Icon = icon; oldIcon?.Dispose();
-        var tip = $"SnipLite {AppInfo.Version} | {HotkeyDefinitions.Format(_settings.CaptureHotkey)} 截图 | {HotkeyDefinitions.Format(_settings.PinHotkey)} 贴图";
+        var tip = Localization.LanguageService.Format("SnipLite {0} | {1} 截图 | {2} 贴图", AppInfo.Version, HotkeyDefinitions.Format(_settings.CaptureHotkey), HotkeyDefinitions.Format(_settings.PinHotkey));
         _tray.Text = tip[..Math.Min(tip.Length, 63)];
-        var signature = $"{_settings.EnhancedTrayMenu}|{_settings.DisplayLanguage}|{_settings.InterfaceFont}|{_settings.InterfaceFontSize}|" + string.Join(',', HotkeyDefinitions.Items.Select(item => typeof(AppSettings).GetProperty(item.Name)!.GetValue(_settings)));
+        var signature = $"{_settings.EnhancedTrayMenu}|{Localization.LanguageService.CurrentLanguage}|{_settings.InterfaceFont}|{_settings.InterfaceFontSize}|" + string.Join(',', HotkeyDefinitions.Items.Select(item => typeof(AppSettings).GetProperty(item.Name)!.GetValue(_settings)));
         if (_menuSignature != signature)
         {
             var oldMenu = _tray.ContextMenuStrip; _tray.ContextMenuStrip = BuildMenu(); _menuSignature = signature;
@@ -131,7 +136,7 @@ internal sealed class TrayContext : ApplicationContext
             if (binding == Keys.None || name == nameof(AppSettings.CopyCoordinatesHotkey)) continue;
             if (_hotkeys.Register(binding, handlers[name])) continue;
             _settings.HotkeyErrors[name] = "已被其他程序占用";
-            Toast.Error($"{label}快捷键 {HotkeyDefinitions.Format(binding)} 已被占用");
+            Toast.Error(Localization.LanguageService.Format("{0}快捷键 {1} 已被占用", UiText.T(label), HotkeyDefinitions.Format(binding)));
         }
     }
     private void CustomCapture()
@@ -139,7 +144,7 @@ internal sealed class TrayContext : ApplicationContext
         using var dialog = new CaptureRegionForm(_settings);
         if (dialog.ShowDialog() != DialogResult.OK) return;
         var bounds = Rectangle.Intersect(dialog.RegionBounds, SystemInformation.VirtualScreen);
-        if (bounds.Width < 1 || bounds.Height < 1) { Toast.Error("区域不在屏幕范围内"); return; }
+        if (bounds.Width < 1 || bounds.Height < 1) { Toast.Error(UiText.T("区域不在屏幕范围内")); return; }
         StartCapture(CaptureMode.Snip, preset: bounds);
     }
     private void StartCapture(CaptureMode mode, bool forceCopy = false, Rectangle? preset = null)
@@ -171,7 +176,7 @@ internal sealed class TrayContext : ApplicationContext
             else if (result.Action == CaptureAction.QuickSave)
             {
                 var path = Services.SaveCaptureFile(result.Image, _settings, _settings.QuickSaveDirectory);
-                if (_settings.QuickSaveToast) Toast.Show("已保存：" + Path.GetFileName(path));
+                if (_settings.QuickSaveToast) Toast.Show(UiText.T("已保存：") + Path.GetFileName(path));
 
             }
             else if (forceCopy || result.Action == CaptureAction.Copy || _settings.CopyAfterCapture)
@@ -179,10 +184,10 @@ internal sealed class TrayContext : ApplicationContext
                 Services.CopyImage(result.Image, _settings.CaptureBitmapClipboard, _settings);
                 if (_history.Entries.Count > 0) _lastPasteSequence = GetClipboardSequenceNumber();
 
-                Toast.Show($"已复制  {result.Image.Width} × {result.Image.Height}");
+                Toast.Show(Localization.LanguageService.Format("已复制  {0} × {1}", result.Image.Width, result.Image.Height));
             }
         }
-        catch (Exception ex) { AppLog.Write("截图输出失败", ex); Toast.Error("截图输出失败：" + ex.Message); }
+        catch (Exception ex) { AppLog.Write("截图输出失败", ex); Toast.Error(UiText.T("截图输出失败：") + ex.Message); }
         finally { if (!transferred) result.Image.Dispose(); }
     }
     private void PinImage(Bitmap image, Rectangle? bounds = null, bool stagger = false)
@@ -213,9 +218,9 @@ internal sealed class TrayContext : ApplicationContext
             }
             if (PinForm.RestoreLast(_settings)) return;
             if (PinForm.ActivateExisting()) return;
-            Toast.Show("剪贴板中没有可贴出的内容，也没有可恢复的贴图");
+            Toast.Show(UiText.T("剪贴板中没有可贴出的内容，也没有可恢复的贴图"));
         }
-        catch (Exception ex) { AppLog.Write("贴图失败", ex); Toast.Error("贴图失败：" + ex.Message); }
+        catch (Exception ex) { AppLog.Write("贴图失败", ex); Toast.Error(UiText.T("贴图失败：") + ex.Message); }
     }
 
     internal static bool TryPinActiveCapture(CaptureForm? overlay)
@@ -235,6 +240,7 @@ internal sealed class TrayContext : ApplicationContext
     {
         AppTheme.Changed -= RefreshTheme;
         _themeMonitor.Dispose();
+        _languageMonitor.Dispose();
         _tray.Visible = false; var icon = _tray.Icon; _tray.Dispose(); icon?.Dispose();
         _overlay?.Close(); _prefs?.Close(); _hotkeys.Dispose(); PinForm.CloseAllForExit(); ExitThread();
     }

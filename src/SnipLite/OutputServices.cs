@@ -47,7 +47,7 @@ internal static partial class Services
         {
             using var builtIn = string.IsNullOrWhiteSpace(path)
                 ? typeof(Services).Assembly.GetManifestResourceStream("SnipLite.PaperFold.wav")
-                    ?? throw new InvalidOperationException("默认截图音效资源缺失。")
+                    ?? throw new InvalidOperationException(UiText.T("默认截图音效资源缺失。"))
                 : null;
             using var player = builtIn is null ? new System.Media.SoundPlayer(path) : new System.Media.SoundPlayer(builtIn);
             player.LoadTimeout = 3000;

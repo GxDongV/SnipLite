@@ -18,14 +18,14 @@ internal sealed class MicrosoftTranslationProvider(
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(text))
-            throw new InvalidOperationException("没有识别到可翻译的文字，请调整选区后重试。");
+            throw new InvalidOperationException(UiText.T("没有识别到可翻译的文字，请调整选区后重试。"));
         if (text.Length > 12_000)
-            throw new InvalidOperationException("文字较多，请缩小截图选区后翻译（最多 12000 字符）。");
+            throw new InvalidOperationException(UiText.T("文字较多，请缩小截图选区后翻译（最多 12000 字符）。"));
         source = TranslationLanguages.Normalize(source, true, "en");
         target = TranslationLanguages.Normalize(target, false, "zh-CN");
         var settings = credentials ?? MicrosoftTranslatorCredentials.Load();
         if (string.IsNullOrWhiteSpace(settings?.Key))
-            throw new InvalidOperationException("请在首选项 → 常规 → 配置微软密钥中填写 Translator 密钥。");
+            throw new InvalidOperationException(UiText.T("请在首选项 → 常规 → 配置微软密钥中填写 Translator 密钥。"));
         if (source == target) return new(text, source);
 
         var url = "https://api.cognitive.microsofttranslator.com/translate?api-version=3.0&to="
@@ -42,21 +42,21 @@ internal sealed class MicrosoftTranslationProvider(
         {
             using var response = await (client ?? SharedClient).SendAsync(request, cancellationToken).ConfigureAwait(false);
             if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
-                throw new InvalidOperationException("微软翻译拒绝了请求，请检查密钥、资源区域和配额。");
+                throw new InvalidOperationException(UiText.T("微软翻译拒绝了请求，请检查密钥、资源区域和配额。"));
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
-                throw new InvalidOperationException("微软翻译请求过于频繁，请稍后重试。");
+                throw new InvalidOperationException(UiText.T("微软翻译请求过于频繁，请稍后重试。"));
             if (!response.IsSuccessStatusCode)
-                throw new InvalidOperationException($"微软翻译请求失败（HTTP {(int)response.StatusCode}）。");
+                throw new InvalidOperationException(Localization.LanguageService.Format("微软翻译请求失败（HTTP {0}）。", (int)response.StatusCode));
 
             using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
             return ParseResult(json.RootElement, source);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        { throw new InvalidOperationException("微软翻译请求超时，请稍后重试。"); }
+        { throw new InvalidOperationException(UiText.T("微软翻译请求超时，请稍后重试。")); }
         catch (HttpRequestException)
-        { throw new InvalidOperationException("无法连接微软翻译服务，请检查网络。"); }
+        { throw new InvalidOperationException(UiText.T("无法连接微软翻译服务，请检查网络。")); }
         catch (JsonException)
-        { throw new InvalidOperationException("微软翻译返回了无法读取的结果，请稍后重试。"); }
+        { throw new InvalidOperationException(UiText.T("微软翻译返回了无法读取的结果，请稍后重试。")); }
     }
 
     internal static TranslationResult ParseResult(JsonElement root, string source)

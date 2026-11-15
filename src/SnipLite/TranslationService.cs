@@ -18,7 +18,7 @@ internal static class TranslationLanguages
 
     public static string Normalize(string? code, bool allowAuto, string fallback)
         => All.FirstOrDefault(l => string.Equals(l.Code, code, StringComparison.OrdinalIgnoreCase) && (allowAuto || l.Code != "auto"))?.Code ?? fallback;
-    public static string Name(string? code) => All.FirstOrDefault(l => string.Equals(l.Code, code, StringComparison.OrdinalIgnoreCase))?.Name ?? code ?? "未知语言";
+    public static string Name(string? code) => UiText.T(All.FirstOrDefault(l => string.Equals(l.Code, code, StringComparison.OrdinalIgnoreCase))?.Name ?? code ?? "未知语言");
 }
 
 internal sealed record TranslationResult(string Text, string? DetectedLanguage);
@@ -36,7 +36,7 @@ internal static class TranslationProviders
     };
 
     public static string Label(TranslationProviderKind kind)
-        => Choices.FirstOrDefault(choice => choice.Kind == kind).Label ?? Choices[0].Label;
+        => UiText.T(Choices.FirstOrDefault(choice => choice.Kind == kind).Label ?? Choices[0].Label);
 
     public static ITranslationProvider Create(TranslationProviderKind kind) => kind switch
     {
@@ -64,8 +64,8 @@ internal sealed class GooglePublicTranslationProvider : ITranslationProvider
 
     public async Task<TranslationResult> TranslateAsync(string text, string source, string target, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(text)) throw new InvalidOperationException("没有识别到可翻译的文字，请调整选区后重试。");
-        if (text.Length > 12_000) throw new InvalidOperationException("文字较多，请缩小截图选区后翻译（最多 12000 字符）。");
+        if (string.IsNullOrWhiteSpace(text)) throw new InvalidOperationException(UiText.T("没有识别到可翻译的文字，请调整选区后重试。"));
+        if (text.Length > 12_000) throw new InvalidOperationException(UiText.T("文字较多，请缩小截图选区后翻译（最多 12000 字符）。"));
         source = TranslationLanguages.Normalize(source, true, "en");
         target = TranslationLanguages.Normalize(target, false, "zh-CN");
         cancellationToken.ThrowIfCancellationRequested();
@@ -83,9 +83,9 @@ internal sealed class GooglePublicTranslationProvider : ITranslationProvider
                     + $"&sl={Uri.EscapeDataString(source)}&tl={Uri.EscapeDataString(target)}&q={Uri.EscapeDataString(chunk)}";
                 using var response = await _client.GetAsync(url, timeout.Token).ConfigureAwait(false);
                 if (response.StatusCode == HttpStatusCode.TooManyRequests)
-                    throw new InvalidOperationException("翻译请求过于频繁，请稍后重试。");
+                    throw new InvalidOperationException(UiText.T("翻译请求过于频繁，请稍后重试。"));
                 if (!response.IsSuccessStatusCode)
-                    throw new InvalidOperationException("翻译服务暂时不可用，请稍后重试。");
+                    throw new InvalidOperationException(UiText.T("翻译服务暂时不可用，请稍后重试。"));
                 var json = await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false);
                 var result = ParseResponse(json);
                 translated.Append(result.Text).Append(separator);
@@ -94,11 +94,11 @@ internal sealed class GooglePublicTranslationProvider : ITranslationProvider
             return new(translated.ToString(), detected);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        { throw new InvalidOperationException("翻译请求超时，请检查网络后重试。"); }
+        { throw new InvalidOperationException(UiText.T("翻译请求超时，请检查网络后重试。")); }
         catch (HttpRequestException)
-        { throw new InvalidOperationException("无法连接翻译服务，请检查网络后重试。"); }
+        { throw new InvalidOperationException(UiText.T("无法连接翻译服务，请检查网络后重试。")); }
         catch (JsonException)
-        { throw new InvalidOperationException("翻译服务返回了无法读取的结果，请稍后重试。"); }
+        { throw new InvalidOperationException(UiText.T("翻译服务返回了无法读取的结果，请稍后重试。")); }
     }
 
     internal static TranslationResult ParseResponse(string json)
@@ -106,12 +106,12 @@ internal sealed class GooglePublicTranslationProvider : ITranslationProvider
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
         if (root.ValueKind != JsonValueKind.Array || root.GetArrayLength() == 0 || root[0].ValueKind != JsonValueKind.Array)
-            throw new InvalidOperationException("翻译服务返回了无效结果，请稍后重试。");
+            throw new InvalidOperationException(UiText.T("翻译服务返回了无效结果，请稍后重试。"));
         var text = new StringBuilder();
         foreach (var segment in root[0].EnumerateArray())
             if (segment.ValueKind == JsonValueKind.Array && segment.GetArrayLength() > 0 && segment[0].ValueKind == JsonValueKind.String)
                 text.Append(segment[0].GetString());
-        if (text.Length == 0) throw new InvalidOperationException("翻译服务未返回译文，请稍后重试。");
+        if (text.Length == 0) throw new InvalidOperationException(UiText.T("翻译服务未返回译文，请稍后重试。"));
         var detected = root.GetArrayLength() > 2 && root[2].ValueKind == JsonValueKind.String ? root[2].GetString() : null;
         return new(text.ToString(), detected);
     }

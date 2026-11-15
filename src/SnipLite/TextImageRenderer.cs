@@ -37,7 +37,7 @@ internal static class TextImageRenderer
                 var advance = Math.Max(1, (int)Math.Ceiling(g.MeasureString(element, font, PointF.Empty, format).Width));
                 if (x > 0 && x + advance > maxWidth) { width = Math.Max(width, x); x = 0; y += lineHeight; }
                 // Bound allocations for exceptionally large clipboard documents.
-                if (y + lineHeight + margin * 2 > 30000) throw new InvalidOperationException("文字过长，请分段转换为贴图。");
+                if (y + lineHeight + margin * 2 > 30000) throw new InvalidOperationException(UiText.T("文字过长，请分段转换为贴图。"));
                 layout.Add((element, run.Style, new Point(x + margin, y + margin)));
                 x += advance;
             }

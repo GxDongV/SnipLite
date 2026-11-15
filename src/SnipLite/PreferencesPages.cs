@@ -30,7 +30,7 @@ internal sealed partial class PreferencesForm
     private void Set(string name, object value)
     {
         Change(() => typeof(AppSettings).GetProperty(name)!.SetValue(_s, value));
-        if (name == nameof(_s.DisplayLanguage)) BeginInvoke(() => ShowTab(_selected));
+        if (name == nameof(_s.DisplayLanguage)) RefreshLanguage();
     }
     private void Flag(string label, string name) => Check(label, (bool)Value(name), value => Set(name, value));
     private void Number(string label, string name, int min, int max, string suffix = "")
@@ -89,7 +89,9 @@ internal sealed partial class PreferencesForm
     private void GeneralPage()
     {
         Section("语言与识别", () => { });
-        Choice("显示语言", nameof(_s.DisplayLanguage), new[] { "简体中文", "English" }, new object[] { "zh-CN", "en-US" });
+        Choice("显示语言", nameof(_s.DisplayLanguage),
+            new[] { UiText.T("跟随系统") }.Concat(Localization.LanguageService.Languages.Select(l => l.NativeName)).ToArray(),
+            new object[] { Localization.LanguageService.SystemDefault }.Concat(Localization.LanguageService.Languages.Select(l => (object)l.Code)).ToArray());
         Choice("识别引擎", nameof(_s.OcrEngine), new[] { "本地增强（中英自动识别）", "Windows 系统识别" }, new object[] { OcrEngineKind.SimdPaddle, OcrEngineKind.Windows });
         Choice("系统识别语言", nameof(_s.OcrLanguage), new[] { "简体中文", "English", "跟随系统" }, new object[] { "zh-Hans", "en-US", "" });
         var translationServices = TranslationProviders.Choices.Select(choice => choice.Kind).ToArray();
@@ -106,13 +108,13 @@ internal sealed partial class PreferencesForm
                 return;
             }
 
-            translationService.Text = translationLabels[CurrentServiceIndex()];
+            translationService.Text = UiText.T(translationLabels[CurrentServiceIndex()]);
             // The dropdown must finish closing before a modal dialog opens.
             BeginInvoke(() =>
             {
                 if (translationService.IsDisposed || ConfigureMicrosoftTranslator(requireKey: true) != true) return;
                 Set(nameof(_s.TranslationProvider), requested);
-                if (!translationService.IsDisposed) translationService.Text = translationLabels[index];
+                if (!translationService.IsDisposed) translationService.Text = UiText.T(translationLabels[index]);
             });
         });
         var configureTranslator = new FluentButton();
@@ -121,7 +123,7 @@ internal sealed partial class PreferencesForm
         {
             if (ConfigureMicrosoftTranslator() != false || _s.TranslationProvider != TranslationProviderKind.Microsoft) return;
             Set(nameof(_s.TranslationProvider), TranslationProviderKind.Bing);
-            if (!translationService.IsDisposed) translationService.Text = translationLabels[0];
+            if (!translationService.IsDisposed) translationService.Text = UiText.T(translationLabels[0]);
         };
         Row("翻译服务", translationService, configureTranslator);
         Section("启动与运行", () => { });
@@ -148,10 +150,10 @@ internal sealed partial class PreferencesForm
         var open = new FluentButton(); StyleButton(open, "打开"); open.Click += (_, _) => OpenFile(AppSettings.FilePath);
         var change = new FluentButton(); StyleButton(change, "更改"); change.Click += (_, _) =>
         {
-            using var dialog = new SaveFileDialog { Filter = "JSON 配置|*.json", FileName = Path.GetFileName(AppSettings.FilePath), InitialDirectory = Path.GetDirectoryName(AppSettings.FilePath) };
+            using var dialog = new SaveFileDialog { Filter = UiText.T("JSON 配置|*.json"), FileName = Path.GetFileName(AppSettings.FilePath), InitialDirectory = Path.GetDirectoryName(AppSettings.FilePath) };
             if (dialog.ShowDialog(this) != DialogResult.OK) return;
             try { _s.MoveConfiguration(dialog.FileName); path.Text = AppSettings.FilePath; }
-            catch (Exception ex) { Toast.Error("配置位置修改失败：" + ex.Message); }
+            catch (Exception ex) { Toast.Error(UiText.T("配置位置修改失败：") + ex.Message); }
         };
         Row("", openFolder, open, change);
     }
@@ -178,13 +180,13 @@ internal sealed partial class PreferencesForm
         var region = new TextBox { Bounds = new Rectangle(128, 52, 294, 26), Text = current?.Region ?? "" };
         var keyField = new FluentInputFrame(key) { Bounds = new Rectangle(128, 14, 294, 32) };
         var regionField = new FluentInputFrame(region) { Bounds = new Rectangle(128, 49, 294, 32) };
-        var save = new FluentButton { Text = "保存", Bounds = new Rectangle(254, 118, 80, 30), Enabled = !requireKey || !string.IsNullOrWhiteSpace(key.Text) };
+        var save = new FluentButton { Text = UiText.T("保存"), Bounds = new Rectangle(254, 118, 80, 30), Enabled = !requireKey || !string.IsNullOrWhiteSpace(key.Text) };
         if (requireKey) key.TextChanged += (_, _) => save.Enabled = !string.IsNullOrWhiteSpace(key.Text);
-        var cancel = new FluentButton { Text = "取消", Bounds = new Rectangle(342, 118, 80, 30), DialogResult = DialogResult.Cancel };
+        var cancel = new FluentButton { Text = UiText.T("取消"), Bounds = new Rectangle(342, 118, 80, 30), DialogResult = DialogResult.Cancel };
         dialog.Controls.AddRange(new Control[]
         {
-            new Label { Text = "Translator 密钥", Bounds = new Rectangle(18, 20, 110, 26) },
-            new Label { Text = "资源区域", Bounds = new Rectangle(18, 55, 110, 26) },
+            new Label { Text = UiText.T("Translator 密钥"), Bounds = new Rectangle(18, 20, 110, 26) },
+            new Label { Text = UiText.T("资源区域"), Bounds = new Rectangle(18, 55, 110, 26) },
             new Label
             {
                 Text = requireKey ? "请输入 Azure Translator 密钥。全局资源可留空区域。" : "全局资源可留空区域。留空密钥并保存可清除配置。",
@@ -201,12 +203,13 @@ internal sealed partial class PreferencesForm
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
             {
-                MessageBox.Show(dialog, "无法保存微软翻译密钥，请检查本地目录权限后重试。", dialog.Text,
+                MessageBox.Show(dialog, UiText.T("无法保存微软翻译密钥，请检查本地目录权限后重试。"), dialog.Text,
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         };
         dialog.AcceptButton = save;
         dialog.CancelButton = cancel;
+        UiText.Apply(dialog);
         AppTheme.Apply(dialog);
         dialog.HandleCreated += (_, _) => AppTheme.ApplyWindow(dialog);
         return dialog.ShowDialog(this) == DialogResult.OK ? !string.IsNullOrWhiteSpace(key.Text) : null;
@@ -221,7 +224,7 @@ internal sealed partial class PreferencesForm
         Value(nameof(_s.CustomTrayIcon));
         AddButton(_controlX, "选择图标文件…", () =>
         {
-            using var dialog = new OpenFileDialog { Filter = "图标与图片|*.ico;*.png;*.bmp", CheckFileExists = true };
+            using var dialog = new OpenFileDialog { Filter = UiText.T("图标与图片|*.ico;*.png;*.bmp"), CheckFileExists = true };
             if (dialog.ShowDialog(this) != DialogResult.OK) return;
             try
             {
@@ -265,7 +268,7 @@ internal sealed partial class PreferencesForm
         {
             using var dialog = new OpenFileDialog
             {
-                Filter = "WAV 音效|*.wav",
+                Filter = UiText.T("WAV 音效|*.wav"),
                 InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Windows) + @"\Media",
                 CheckFileExists = true
             };
@@ -288,7 +291,7 @@ internal sealed partial class PreferencesForm
     {
         var values = new object[] { CaptureAction.Copy, CaptureAction.Pin, CaptureAction.QuickSave, CaptureAction.None };
         var chooser = MakeChooser(new[] { "复制到剪贴板", "贴到屏幕", "快速保存", "无操作" }, Array.IndexOf(values, Value(action)), i => Set(action, values[i]));
-        var check = new FluentToggle { Text = "然后退出截屏", AutoSize = false, Width = Px(180), Height = Px(ControlH), Checked = (bool)Value(exit) };
+        var check = new FluentToggle { Text = UiText.T("然后退出截屏"), AutoSize = false, Width = Px(180), Height = Px(ControlH), Checked = (bool)Value(exit) };
         check.CheckedChanged += (_, _) => Set(exit, check.Checked);
         Row(label, chooser, check);
     }
@@ -332,7 +335,7 @@ internal sealed partial class PreferencesForm
         AddButton(_controlX, "预览文字贴图", () =>
         {
             using var image = TextImageRenderer.Render("预览\nAaOo012", null, _s);
-            using var preview = new Form { Text = "文字贴图预览", ClientSize = image.Size, StartPosition = FormStartPosition.CenterParent, ShowInTaskbar = false };
+            using var preview = new Form { Text = UiText.T("文字贴图预览"), ClientSize = image.Size, StartPosition = FormStartPosition.CenterParent, ShowInTaskbar = false };
             preview.Controls.Add(new PictureBox { Image = image, Dock = DockStyle.Fill, SizeMode = PictureBoxSizeMode.Zoom }); preview.ShowDialog(this);
         });
     }
@@ -361,7 +364,7 @@ internal sealed partial class PreferencesForm
         {
             var binding = (Keys)Value(name);
             string BindingText() => _s.HotkeyErrors.TryGetValue(name, out var error)
-                ? $"{HotkeyDefinitions.Format(binding)} · {error}" : HotkeyDefinitions.Format(binding);
+                ? $"{HotkeyDefinitions.Format(binding)} · {UiText.T(error)}" : HotkeyDefinitions.Format(binding);
             var current = MakeStatic(BindingText());
             var change = new FluentButton();
             StyleButton(change, UiText.T("更改", _s.DisplayLanguage));
@@ -372,7 +375,7 @@ internal sealed partial class PreferencesForm
                 {
                     using var dialog = new Form
                     {
-                        Text = label, StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog,
+                        Text = UiText.T(label), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog,
                         AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ShowInTaskbar = false,
                         MinimizeBox = false, MaximizeBox = false, Font = Font
                     };
@@ -382,7 +385,7 @@ internal sealed partial class PreferencesForm
                         Padding = new Padding(Px(12))
                     };
                     var box = new HotkeyBox { Binding = binding, Width = Px(310) };
-                    var status = new Label { AutoSize = true, Text = "按下新快捷键，或按 Delete 清除。" };
+                    var status = new Label { AutoSize = true, Text = UiText.T("按下新快捷键，或按 Delete 清除。") };
                     var buttons = new FlowLayoutPanel { AutoSize = true };
                     var confirm = new FluentButton();
                     var cancel = new FluentButton { DialogResult = DialogResult.Cancel };
@@ -392,7 +395,7 @@ internal sealed partial class PreferencesForm
                     box.BindingChanged += candidate =>
                     {
                         confirm.Enabled = candidate != binding;
-                        status.Text = confirm.Enabled ? "点击确认以保存更改。" : "当前绑定未改变。";
+                        status.Text = UiText.T(confirm.Enabled ? "点击确认以保存更改。" : "当前绑定未改变。");
                     };
                     confirm.Click += (_, _) =>
                     {
@@ -400,14 +403,14 @@ internal sealed partial class PreferencesForm
                         if (candidate != Keys.None && HotkeyDefinitions.Items.Any(item => item.Name != name &&
                             (Keys)typeof(AppSettings).GetProperty(item.Name)!.GetValue(_s)! == candidate))
                         {
-                            status.Text = "与其他功能重复，请重新输入。";
+                            status.Text = UiText.T("与其他功能重复，请重新输入。");
                             box.Focus();
                             return;
                         }
                         if (candidate != Keys.None && name != nameof(AppSettings.CopyCoordinatesHotkey) &&
                             HotkeyAvailable?.Invoke(candidate) == false)
                         {
-                            status.Text = "组合键被占用或由系统保留，请重新输入。";
+                            status.Text = UiText.T("组合键被占用或由系统保留，请重新输入。");
                             box.Focus();
                             return;
                         }
@@ -466,6 +469,6 @@ internal sealed partial class PreferencesForm
             if (!File.Exists(path)) File.WriteAllText(path, "");
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
         }
-        catch (Exception ex) { Toast.Error("打开文件失败：" + ex.Message); }
+        catch (Exception ex) { Toast.Error(UiText.T("打开文件失败：") + ex.Message); }
     }
 }

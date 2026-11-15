@@ -158,6 +158,20 @@ internal sealed partial class CaptureForm : Form
         };
     }
 
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) Localization.LanguageService.Changed -= RefreshInterfaceLanguage;
+        base.Dispose(disposing);
+    }
+
+    private void RefreshInterfaceLanguage()
+    {
+        if (IsDisposed) return;
+        _hoverHint = "";
+        _toolTip.Hide(this);
+        Invalidate();
+    }
+
     private float Ui => DeviceDpi / 96f;
 
     private int Zoom => Math.Clamp(_magnifierZoom, 2, 16);
@@ -167,6 +181,7 @@ internal sealed partial class CaptureForm : Form
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
+        Localization.LanguageService.Changed += RefreshInterfaceLanguage;
 
         Win32.SetWindowPos(Handle, Win32.HWND_TOPMOST,
             _virtual.X, _virtual.Y, _virtual.Width, _virtual.Height,
@@ -194,6 +209,7 @@ internal sealed partial class CaptureForm : Form
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
+        Localization.LanguageService.Changed -= RefreshInterfaceLanguage;
         _recognitionVersion++;
         CancelTranslation();
         ClearTranslationImages();
@@ -311,7 +327,7 @@ internal sealed partial class CaptureForm : Form
             }
             if (_settings.CaptureShortcutHints)
             {
-                var hint = "拖动框选 / 单击窗口 · 右键取消 · Alt 放大镜";
+                var hint = UiText.T("拖动框选 / 单击窗口 · 右键取消 · Alt 放大镜");
                 var box = new Rectangle((int)(20 * Ui), _virtual.Height - (int)(42 * Ui), (int)(600 * Ui), (int)(28 * Ui));
                 using var back = new SolidBrush(AppTheme.Current.Card);
                 using var hintPath = FluentDrawing.Rounded(box, 6 * Ui); g.FillPath(back, hintPath);
@@ -451,7 +467,7 @@ internal sealed partial class CaptureForm : Form
         MagnifierReticle.Draw(g, box, focus, Ui, _settings.Accent);
 
         var pixel = _screenshot.GetPixel(_cursor.X, _cursor.Y);
-        var info = $"{CoordinateText()}\n{ColorValue(pixel)}" + (_settings.MagnifierHints ? "\nC 复制颜色 · Shift 切换 RGB / HEX" + (_settings.CopyCoordinatesHotkey == Keys.None ? "" : $"\n{HotkeyDefinitions.Format(_settings.CopyCoordinatesHotkey)} 复制坐标") : "");
+        var info = $"{CoordinateText()}\n{ColorValue(pixel)}" + (_settings.MagnifierHints ? UiText.T("\nC 复制颜色 · Shift 切换 RGB / HEX") + (_settings.CopyCoordinatesHotkey == Keys.None ? "" : Localization.LanguageService.Format("\n{0} 复制坐标", HotkeyDefinitions.Format(_settings.CopyCoordinatesHotkey))) : "");
         var labelSize = g.MeasureString(info, _badgeFont);
         var label = new Rectangle(Math.Clamp(box.X, 0, Math.Max(0, _virtual.Width - (int)labelSize.Width - 12)), Math.Max(0, box.Y - (int)labelSize.Height - 8), (int)labelSize.Width + 12, (int)labelSize.Height + 6);
         using var labelBack = new SolidBrush(AppTheme.Current.Card);
@@ -857,8 +873,8 @@ internal sealed partial class CaptureForm : Form
         if (_ime is null && keyData != Keys.None && HotkeyDefinitions.WithWindowsKey(keyData) == _settings.CopyCoordinatesHotkey)
         {
             _cursor = CursorToLocal();
-            try { Clipboard.SetText(CoordinateText()); Toast.Show("坐标已复制"); }
-            catch (Exception ex) { Toast.Error("复制失败：" + ex.Message); }
+            try { Clipboard.SetText(CoordinateText()); Toast.Show(UiText.T("坐标已复制")); }
+            catch (Exception ex) { Toast.Error(UiText.T("复制失败：") + ex.Message); }
             return true;
         }
         // RegisterHotKey normally routes this through TrayContext. Also handle
@@ -929,7 +945,7 @@ internal sealed partial class CaptureForm : Form
             }
             else
             {
-                if (!_settings.ConfirmEscape || MessageBox.Show(this, "退出当前截图？", "取消截图", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes) Cancel();
+                if (!_settings.ConfirmEscape || MessageBox.Show(this, UiText.T("退出当前截图？"), UiText.T("取消截图"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes) Cancel();
                 return true;
             }
 
@@ -998,8 +1014,8 @@ internal sealed partial class CaptureForm : Form
         if ((keyData & Keys.KeyCode) == Keys.C && (keyData & Keys.Control) == 0)
         {
             var color = _screenshot.GetPixel(_cursor.X, _cursor.Y);
-            try { Clipboard.SetText(ColorValue(color)); Toast.Show("颜色已复制：" + ColorValue(color)); }
-            catch { Toast.Error("复制颜色失败，请重试"); }
+            try { Clipboard.SetText(ColorValue(color)); Toast.Show(UiText.T("颜色已复制：") + ColorValue(color)); }
+            catch { Toast.Error(UiText.T("复制颜色失败，请重试")); }
             return true;
         }
 
@@ -1186,8 +1202,8 @@ internal sealed partial class CaptureForm : Form
 
     private string CoordinateText()
     {
-        var absolute = $"屏幕 ({_cursor.X + _virtual.X}, {_cursor.Y + _virtual.Y})";
-        return _hasSelection ? $"{absolute}\n选区 ({_cursor.X - _selection.X}, {_cursor.Y - _selection.Y})" : absolute;
+        var absolute = Localization.LanguageService.Format("屏幕 ({0}, {1})", _cursor.X + _virtual.X, _cursor.Y + _virtual.Y);
+        return _hasSelection ? Localization.LanguageService.Format("{0}\n选区 ({1}, {2})", absolute, _cursor.X - _selection.X, _cursor.Y - _selection.Y) : absolute;
     }
 
     private string ColorValue(Color color) => _settings.FormatColor(color, _hexColor);
@@ -1422,7 +1438,7 @@ internal sealed partial class CaptureForm : Form
         _bar.OcrMode = ocr;
         _bar.OcrCopyVisible = false;
         _bar.ResultCopied = false;
-        _bar.Status = ocr ? "正在识别文字…  Esc 返回标注" : "正在识别二维码 / 条码…  Esc 取消";
+        _bar.SetStatus(() => ocr ? UiText.T("正在识别文字…  Esc 返回标注") : UiText.T("正在识别二维码 / 条码…  Esc 取消"));
         UpdateCursor();
         Invalidate();
         try
@@ -1434,9 +1450,9 @@ internal sealed partial class CaptureForm : Form
                 _recognitionBusy = false;
                 _ocrDocument = document;
                 _bar.OcrCopyVisible = document.Characters.Count > 0;
-                _bar.Status = document.Characters.Count == 0
-                    ? "未识别到文字，按 Esc 返回后调整选区"
-                    : "拖动选字 · Ctrl+A 全选 · Ctrl+C 复制 · Esc 返回编辑";
+                _bar.SetStatus(() => document.Characters.Count == 0
+                    ? UiText.T("未识别到文字，按 Esc 返回后调整选区")
+                    : UiText.T("拖动选字 · Ctrl+A 全选 · Ctrl+C 复制 · Esc 返回编辑"));
             }
             else
             {
@@ -1449,7 +1465,7 @@ internal sealed partial class CaptureForm : Form
         {
             if (IsDisposed || version != _recognitionVersion) return;
             _recognitionBusy = false;
-            _bar.Status = "识别失败：" + ex.Message;
+            _bar.SetStatus(() => UiText.T("识别失败：") + ex.Message);
             Toast.Error(_bar.Status);
         }
         finally
@@ -1481,7 +1497,7 @@ internal sealed partial class CaptureForm : Form
     {
         _recognitionBusy = false;
         _qrText = string.IsNullOrEmpty(text) ? null : text;
-        _bar.Status = _qrText ?? "未检测到二维码 / 条码，请调整选区后重试";
+        _bar.SetStatus(() => _qrText ?? UiText.T("未检测到二维码 / 条码，请调整选区后重试"));
         _bar.ResultCopyVisible = _qrText is not null;
         _bar.ResultCopied = false;
         UpdateCursor(); Invalidate();
@@ -1495,7 +1511,7 @@ internal sealed partial class CaptureForm : Form
     {
         if (string.IsNullOrEmpty(_qrText)) return;
         try { Clipboard.SetText(_qrText); _bar.ResultCopied = true; }
-        catch { _bar.ResultCopied = false; Toast.Error("复制失败，请重试"); }
+        catch { _bar.ResultCopied = false; Toast.Error(UiText.T("复制失败，请重试")); }
         Invalidate();
     }
 
@@ -1505,7 +1521,7 @@ internal sealed partial class CaptureForm : Form
             ? _ocrDocument?.Text ?? "" : _ocrDocument?.GetText(_ocrAnchor, _ocrEnd) ?? "";
         if (text.Length == 0)
         {
-            _bar.Status = "请先拖动选择文字，或按 Ctrl+A 全选";
+            _bar.SetStatus(() => UiText.T("请先拖动选择文字，或按 Ctrl+A 全选"));
         }
         else
         {
@@ -1513,9 +1529,9 @@ internal sealed partial class CaptureForm : Form
             {
                 Clipboard.SetText(text);
                 _bar.ResultCopied = true;
-                _bar.Status = "已复制选中文字，可继续划词 · Esc 返回标注";
+                _bar.SetStatus(() => UiText.T("已复制选中文字，可继续划词 · Esc 返回标注"));
             }
-            catch { _bar.Status = "复制失败，请重试"; }
+            catch { _bar.SetStatus(() => UiText.T("复制失败，请重试")); }
         }
         Invalidate();
     }
@@ -1546,9 +1562,9 @@ internal sealed partial class CaptureForm : Form
         if (_barVisible && _bar.HitTest(_cursor) == "pin")
         {
             var binding = HotkeyDefinitions.Format(_settings.PinHotkey);
-            hint = _settings.PinHotkey is Keys.None or (Keys.Control | Keys.T) ? "贴图（Ctrl+T）" : $"贴图（{binding} / Ctrl+T）";
+            hint = _settings.PinHotkey is Keys.None or (Keys.Control | Keys.T) ? UiText.T("贴图（Ctrl+T）") : Localization.LanguageService.Format("贴图（{0} / Ctrl+T）", binding);
         }
-        if (TranslationVisible && _bar.HitTest(_cursor) == "translate") hint = "关闭截图翻译（Esc）";
+        if (TranslationVisible && _bar.HitTest(_cursor) == "translate") hint = UiText.T("关闭截图翻译（Esc）");
         if (_qrText is not null && _bar.MessageBounds.Contains(_cursor) && _bar.HitTest(_cursor) != "resultcopy") hint = _qrText;
         if (_hoverHint == hint) return;
         _hoverHint = hint;
@@ -1599,7 +1615,7 @@ internal sealed partial class CaptureForm : Form
 
         using var dialog = new SaveFileDialog
         {
-            Filter = "PNG 图片|*.png|JPEG 图片|*.jpg",
+            Filter = UiText.T("PNG 图片|*.png|JPEG 图片|*.jpg"),
             FileName = Services.ImageFileName(_settings, _settings.RememberImageExtension ? _settings.LastImageExtension : ".png"),
             FilterIndex = _settings.RememberImageExtension && _settings.LastImageExtension != ".png" ? 2 : 1
         };
@@ -1614,11 +1630,11 @@ internal sealed partial class CaptureForm : Form
             Services.SaveImage(image, dialog.FileName, jpeg, _settings.JpegQuality);
             if (_settings.SoundOnSave) _ = Services.PlaySoundAsync(_settings.CaptureSound);
             if (_settings.RememberImageExtension) { _settings.LastImageExtension = jpeg ? ".jpg" : ".png"; _settings.Save(); }
-            Toast.Show("已保存：" + Path.GetFileName(dialog.FileName));
+            Toast.Show(UiText.T("已保存：") + Path.GetFileName(dialog.FileName));
         }
         catch (Exception ex)
         {
-            Toast.Show("保存失败：" + ex.Message);
+            Toast.Show(UiText.T("保存失败：") + ex.Message);
         }
     }
 
@@ -1631,7 +1647,7 @@ internal sealed partial class CaptureForm : Form
             using var image = RenderComposite(crop);
             Services.CopyImage(image, _settings.CaptureBitmapClipboard, _settings);
         }
-        catch (Exception ex) { AppLog.Write("自动复制截图失败", ex); Toast.Error("自动复制截图失败：" + ex.Message); }
+        catch (Exception ex) { AppLog.Write("自动复制截图失败", ex); Toast.Error(UiText.T("自动复制截图失败：") + ex.Message); }
     }
 
     private void Confirm()

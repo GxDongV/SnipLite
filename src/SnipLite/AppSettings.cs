@@ -152,7 +152,7 @@ internal sealed partial class AppSettings
         catch (Exception ex)
         {
             AppLog.Write("无法保存设置", ex);
-            Toast.Error("设置保存失败：" + ex.Message);
+            Toast.Error(UiText.T("设置保存失败：") + ex.Message);
         }
     }
 }

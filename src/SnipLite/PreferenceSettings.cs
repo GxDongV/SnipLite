@@ -8,7 +8,7 @@ internal sealed record MouseBinding(Keys Modifiers, PointerGesture Gesture);
 
 internal sealed partial class AppSettings
 {
-    public string DisplayLanguage { get; set; } = "zh-CN";
+    public string DisplayLanguage { get; set; } = Localization.LanguageService.SystemDefault;
     public bool StartAsAdministrator { get; set; }
     public bool AutoBackup { get; set; } = true;
     public bool KeepResponsive { get; set; } = true;
@@ -111,6 +111,7 @@ internal sealed partial class AppSettings
     }
     private void NormalizePreferences()
     {
+        DisplayLanguage = Localization.LanguageService.NormalizePreference(DisplayLanguage);
         if (!Enum.IsDefined(OcrEngine)) OcrEngine = OcrEngineKind.SimdPaddle;
         TranslationSourceLanguage = TranslationLanguages.Normalize(TranslationSourceLanguage, allowAuto: true, "en");
         TranslationTargetLanguage = TranslationLanguages.Normalize(TranslationTargetLanguage, allowAuto: false, "zh-CN");

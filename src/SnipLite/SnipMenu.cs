@@ -131,7 +131,7 @@ internal static class SnipMenu
         void ApplyTheme() { if (!menu.IsDisposed) { menu.BackColor = SnipMenuRenderer.Back; menu.ForeColor = AppTheme.Current.Text; menu.Invalidate(true); } }
         AppTheme.Changed += ApplyTheme;
         menu.Disposed += (_, _) => AppTheme.Changed -= ApplyTheme;
-        menu.Opening += (_, _) => ApplyTheme();
+        menu.Opening += (_, _) => { ApplyTheme(); UiText.Apply(menu); };
         return menu;
     }
 
@@ -150,6 +150,7 @@ internal static class SnipMenu
             item.ShortcutKeyDisplayString = shortcut;
 
         item.Click += (_, _) => action();
+        Localization.LocalizedControls.Apply(item);
         return item;
     }
 }

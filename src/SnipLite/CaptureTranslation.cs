@@ -46,7 +46,7 @@ internal sealed partial class CaptureForm
         if (_translationPanel is not { Visible: true } panel || panel.Provider == provider) return;
         if (provider == TranslationProviderKind.Microsoft && !MicrosoftTranslatorCredentials.HasKey())
         {
-            panel.SetStatus("请在首选项 → 常规 → 配置微软密钥");
+            panel.SetStatus(() => UiText.T("请在首选项 → 常规 → 配置微软密钥"));
             return;
         }
         _translationProvider = TranslationProviders.Create(provider);
@@ -64,7 +64,7 @@ internal sealed partial class CaptureForm
         EnsureTranslationPanel(); CancelTranslation(); ClearTranslationImages();
         _translationInput = null; _translationBlocks = Array.Empty<TranslationBlock>();
         _translationCrop = crop;
-        _translationPanel!.SetOriginal(""); _translationPanel.SetBusy("正在识别…");
+        _translationPanel!.SetOriginal(""); _translationPanel.SetBusy(() => UiText.T("正在识别…"));
         _translationPanel.Visible = true; _translationPanel.BringToFront();
         _bar.TranslationMode = true; _bar.Status = ""; _showMagnifier = false;
         var request = ++_translationRequest;
@@ -78,13 +78,13 @@ internal sealed partial class CaptureForm
             _translationInput = document.Text; _translationBlocks = TranslationOverlay.GetBlocks(document);
             _translationSnapshot = new Bitmap(image);
             _translationPanel.SetOriginal(document.Text);
-            if (string.IsNullOrWhiteSpace(document.Text)) _translationPanel.SetError("未识别到文字，请调整选区。");
+            if (string.IsNullOrWhiteSpace(document.Text)) _translationPanel.SetError(() => UiText.T("未识别到文字，请调整选区。"));
             else await TranslateRecognizedTextAsync();
         }
         catch
         {
             if (!IsDisposed && TranslationVisible && request == _translationRequest)
-                _translationPanel.SetError("识别失败，请重试或调整选区。");
+                _translationPanel.SetError(() => UiText.T("识别失败，请重试或调整选区。"));
         }
         finally
         {
@@ -103,12 +103,12 @@ internal sealed partial class CaptureForm
         var provider = _translationProvider;
         var blocks = _translationBlocks.Count > 0 ? _translationBlocks : new[] { new TranslationBlock(_translationInput, new(0, 0, 1, 1), 1) };
         _translationLayer?.Dispose(); _translationLayer = null;
-        _translationPanel.SetBusy("正在翻译…"); Invalidate(_selection);
+        _translationPanel.SetBusy(() => UiText.T("正在翻译…")); Invalidate(_selection);
         Exception? firstFailure = null;
         try
         {
             if (_translationInput.Length > 12_000 || blocks.Count > 80)
-                throw new InvalidOperationException("文字较多，请缩小选区后翻译。");
+                throw new InvalidOperationException(UiText.T("文字较多，请缩小选区后翻译。"));
             using var workers = new SemaphoreSlim(2, 2);
             var completed = 0;
             var results = await Task.WhenAll(blocks.Select(async block =>
@@ -153,7 +153,7 @@ internal sealed partial class CaptureForm
             if (!IsDisposed && TranslationVisible && request == _translationRequest)
             {
                 var error = firstFailure ?? ex;
-                _translationPanel.SetError(error is InvalidOperationException ? error.Message : "翻译失败，请检查网络后重试。");
+                _translationPanel.SetError(() => error is InvalidOperationException ? error.Message : UiText.T("翻译失败，请检查网络后重试。"));
             }
         }
         finally { if (ReferenceEquals(_translationCancellation, cancellation)) _translationCancellation = null; }

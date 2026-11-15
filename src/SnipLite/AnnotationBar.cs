@@ -67,7 +67,17 @@ internal sealed class AnnotationBar
     public bool OcrCopyVisible { get; set; }
     public bool CanUndo { get; set; }
     public bool CanRedo { get; set; }
-    public string Status { get; set; } = "";
+    private string _rawStatus = "";
+    private Func<string>? _localizedStatus;
+    public string Status { get => _localizedStatus?.Invoke() ?? _rawStatus; set { _localizedStatus = null; _rawStatus = value; } }
+    public void SetStatus(Func<string> status) => _localizedStatus = status;
+    private int ResultButtonWidth()
+    {
+        using var font = new Font("Microsoft YaHei UI", 11 * Scale, GraphicsUnit.Pixel);
+        var label = OcrMode ? UiText.T("复制文字") : UiText.T("复制");
+        var width = Math.Max(TextRenderer.MeasureText(label, font).Width, TextRenderer.MeasureText(UiText.T("已复制"), font).Width);
+        return Math.Clamp(width + Px(18), Px(OcrMode ? 80 : 56), Px(150));
+    }
     public bool ResultCopyVisible { get; set; }
     public bool ResultCopied { get; set; }
 
@@ -276,10 +286,11 @@ internal sealed class AnnotationBar
         if (Status.Length > 0)
         {
             _message = new Rectangle(0, totalHeight - 1, mainWidth, Px(OcrMode ? 44 : 32));
+            var copyWidth = ResultButtonWidth();
             if (ResultCopyVisible)
-                Add(_message.Right - Px(62), _message.Top + Px(4), Px(56), _message.Height - Px(8), "resultcopy");
+                Add(_message.Right - copyWidth - Px(6), _message.Top + Px(4), copyWidth, _message.Height - Px(8), "resultcopy");
             if (OcrMode && OcrCopyVisible)
-                Add(_message.Right - Px(85), _message.Top + Px(5), Px(80), Px(34), "ocrtextcopy");
+                Add(_message.Right - copyWidth - Px(6), _message.Top + Px(5), copyWidth, Px(34), "ocrtextcopy");
             totalWidth = Math.Max(totalWidth, _message.Width);
             totalHeight = _message.Bottom;
         }
@@ -342,22 +353,22 @@ internal sealed class AnnotationBar
 
     public static string Hint(string? id, bool ocrMode) => id switch
     {
-        "ocr" => ocrMode ? "退出文字选择（Esc）" : "识别文字（OCR）",
-        "qr" => "识别二维码 / 条码",
-        "translate" => "截图翻译（默认英语 → 中文）",
-        "copy" => ocrMode ? "复制截图" : "复制截图（Ctrl+C）",
-        "close" => ocrMode ? "取消截图" : "取消截图（Esc）",
-        "pin" => "贴图（Ctrl+T）", "save" => "另存为（Ctrl+S）",
-        "rect" => "矩形（R）", "ellipse" => "椭圆（E）", "arrow" => "箭头（A）",
-        "pen" => "铅笔（P）", "marker" => "马克笔（H）", "text" => "文字（T）",
-        "mosaic" => "马赛克（M）", "eraser" => "橡皮擦（X），仅擦除标注",
-        "fontfamily" => "选择字体", "fontsize" => "设置字号（可输入数值）",
-        "colorcur" => "自定义 RGB 颜色", "width" => "设置线宽 / 笔刷大小",
-        "modeline" => "线段模式", "modebrush" => "涂抹模式", "moderect" => "框选模式",
-        "opacity" => "拖动调整马克笔不透明度", "strength" => "拖动调整马赛克程度",
-        "arrowstyle" => "箭头样式", "bold" => "粗体", "italic" => "斜体",
-        "resultcopy" => "复制二维码 / 条码完整内容",
-        "ocrtextcopy" => "复制选中文字，未选字时复制全部识别结果",
+        "ocr" => ocrMode ? UiText.T("退出文字选择（Esc）") : UiText.T("识别文字（OCR）"),
+        "qr" => UiText.T("识别二维码 / 条码"),
+        "translate" => UiText.T("截图翻译（默认英语 → 中文）"),
+        "copy" => ocrMode ? UiText.T("复制截图") : UiText.T("复制截图（Ctrl+C）"),
+        "close" => ocrMode ? UiText.T("取消截图") : UiText.T("取消截图（Esc）"),
+        "pin" => UiText.T("贴图（Ctrl+T）"), "save" => UiText.T("另存为（Ctrl+S）"),
+        "rect" => UiText.T("矩形（R）"), "ellipse" => UiText.T("椭圆（E）"), "arrow" => UiText.T("箭头（A）"),
+        "pen" => UiText.T("铅笔（P）"), "marker" => UiText.T("马克笔（H）"), "text" => UiText.T("文字（T）"),
+        "mosaic" => UiText.T("马赛克（M）"), "eraser" => UiText.T("橡皮擦（X），仅擦除标注"),
+        "fontfamily" => UiText.T("选择字体"), "fontsize" => UiText.T("设置字号（可输入数值）"),
+        "colorcur" => UiText.T("自定义 RGB 颜色"), "width" => UiText.T("设置线宽 / 笔刷大小"),
+        "modeline" => UiText.T("线段模式"), "modebrush" => UiText.T("涂抹模式"), "moderect" => UiText.T("框选模式"),
+        "opacity" => UiText.T("拖动调整马克笔不透明度"), "strength" => UiText.T("拖动调整马赛克程度"),
+        "arrowstyle" => UiText.T("箭头样式"), "bold" => UiText.T("粗体"), "italic" => UiText.T("斜体"),
+        "resultcopy" => UiText.T("复制二维码 / 条码完整内容"),
+        "ocrtextcopy" => UiText.T("复制选中文字，未选字时复制全部识别结果"),
         _ => ""
     };
 
@@ -376,8 +387,7 @@ internal sealed class AnnotationBar
             DrawBar(g, _message);
             using var font = new Font("Microsoft YaHei UI", 12f * Scale, GraphicsUnit.Pixel);
             var text = Rectangle.Inflate(_message, -Px(10), 0);
-            if (ResultCopyVisible) text.Width -= Px(64);
-            if (OcrMode && OcrCopyVisible) text.Width -= Px(87);
+            if (ResultCopyVisible || OcrMode && OcrCopyVisible) text.Width -= ResultButtonWidth() + Px(10);
             TextRenderer.DrawText(g, Status.Replace("\r", " ").Replace("\n", " "), font, text, IconColor,
                 TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
         }
@@ -389,8 +399,8 @@ internal sealed class AnnotationBar
                 using var path = FluentDrawing.Rounded(Rectangle.Inflate(rect, -Px(2), -Px(2)), Px(5));
                 g.FillPath(back, path);
                 using var font = new Font("Microsoft YaHei UI", 11 * Scale, GraphicsUnit.Pixel);
-                TextRenderer.DrawText(g, ResultCopied ? "已复制" : id == "ocrtextcopy" ? "复制文字" : "复制", font, rect, AppTheme.Current.OnAccent,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
+                TextRenderer.DrawText(g, ResultCopied ? UiText.T("已复制") : id == "ocrtextcopy" ? UiText.T("复制文字") : UiText.T("复制"), font, rect, AppTheme.Current.OnAccent,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
                 continue;
             }
             if (id.StartsWith("color", StringComparison.Ordinal))
@@ -684,7 +694,7 @@ internal sealed class AnnotationBar
                 break;
             case "translate":
                 using (var font = new Font("Microsoft YaHei UI", 14f * s, FontStyle.Bold, GraphicsUnit.Pixel))
-                    TextRenderer.DrawText(g, "译", font, rect, color,
+                    TextRenderer.DrawText(g, UiText.T("译"), font, rect, color,
                         TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
                 break;
 

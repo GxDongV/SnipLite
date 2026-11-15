@@ -23,8 +23,8 @@ internal sealed class BingWebTranslationProvider : ITranslationProvider
     public async Task<TranslationResult> TranslateAsync(string text, string source, string target, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (string.IsNullOrWhiteSpace(text)) throw new InvalidOperationException("没有识别到可翻译的文字。");
-        if (text.Length > 12_000) throw new InvalidOperationException("文字较多，请缩小截图选区后翻译。");
+        if (string.IsNullOrWhiteSpace(text)) throw new InvalidOperationException(UiText.T("没有识别到可翻译的文字。"));
+        if (text.Length > 12_000) throw new InvalidOperationException(UiText.T("文字较多，请缩小截图选区后翻译。"));
         source = TranslationLanguages.Normalize(source, true, "en");
         target = TranslationLanguages.Normalize(target, false, "zh-CN");
         if (source == target) return new(text, source);
@@ -49,11 +49,11 @@ internal sealed class BingWebTranslationProvider : ITranslationProvider
             return new(translated.ToString(), detected);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        { throw new InvalidOperationException("必应网页翻译超时，请稍后重试。"); }
+        { throw new InvalidOperationException(UiText.T("必应网页翻译超时，请稍后重试。")); }
         catch (HttpRequestException)
-        { throw new InvalidOperationException("无法连接必应网页翻译，请检查网络。"); }
+        { throw new InvalidOperationException(UiText.T("无法连接必应网页翻译，请检查网络。")); }
         catch (JsonException)
-        { throw new InvalidOperationException("必应网页翻译返回了无法读取的结果，请稍后重试。"); }
+        { throw new InvalidOperationException(UiText.T("必应网页翻译返回了无法读取的结果，请稍后重试。")); }
     }
 
     private async Task<Session> GetSessionAsync(CancellationToken cancellationToken)
@@ -71,7 +71,7 @@ internal sealed class BingWebTranslationProvider : ITranslationProvider
             var impression = Regex.Match(html, "\\bIG\\s*:\\s*\"([A-Fa-f0-9]+)\"").Groups[1].Value;
             var instance = Regex.Match(html, "data-iid=\"(translator\\.[^\"]+)\"").Groups[1].Value;
             if (values.Length == 0 || impression.Length == 0 || instance.Length == 0)
-                throw new InvalidOperationException("必应网页未提供翻译会话，请稍后重试或切换服务。");
+                throw new InvalidOperationException(UiText.T("必应网页未提供翻译会话，请稍后重试或切换服务。"));
 
             using var json = JsonDocument.Parse(values);
             var lifetime = TimeSpan.FromMilliseconds(Math.Clamp(json.RootElement[2].GetInt64(), 0, 300_000));
@@ -120,8 +120,8 @@ internal sealed class BingWebTranslationProvider : ITranslationProvider
     private static void EnsureSuccess(HttpStatusCode status)
     {
         if (status == HttpStatusCode.TooManyRequests)
-            throw new InvalidOperationException("必应网页翻译请求过于频繁，请稍后重试。");
+            throw new InvalidOperationException(UiText.T("必应网页翻译请求过于频繁，请稍后重试。"));
         if ((int)status is < 200 or >= 300)
-            throw new InvalidOperationException($"必应网页翻译暂不可用（HTTP {(int)status}），请稍后重试。");
+            throw new InvalidOperationException(Localization.LanguageService.Format("必应网页翻译暂不可用（HTTP {0}），请稍后重试。", (int)status));
     }
 }

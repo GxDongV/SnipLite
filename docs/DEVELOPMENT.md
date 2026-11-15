@@ -26,6 +26,16 @@ dotnet run --project src/SnipLite/SnipLite.csproj -c Release --no-build
 | 截图翻译 | `CaptureTranslation.cs`、`TranslationPanel.cs`、`TranslationOverlay.cs`、`TranslationService.cs` |
 | 贴图 | `PinForm.cs`、`PinShadowWindow.cs`、`TextImageRenderer.cs` |
 | 首选项与持久化 | `PreferencesForm.cs`、`PreferencesPages.cs`、`AppSettings.cs`、`PreferenceSettings.cs` |
+| 界面语言适配 | `Localization/LanguageService.cs`、`Localization/LocalizedControls.cs`、`Localization/LanguageMonitor.cs` |
+
+## 多语言文档与资源
+
+README 面向使用者，介绍功能、下载和操作。语言资源、系统语言匹配策略与 README 导航维护方式见 [多语言适配说明](LOCALIZATION.md)。
+
+```powershell
+.\scripts\update-readme-languages.ps1
+.\scripts\check-localization.ps1
+```
 
 ## 发布与清理
 

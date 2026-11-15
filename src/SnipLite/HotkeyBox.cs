@@ -16,7 +16,7 @@ internal static class HotkeyDefinitions
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern short GetAsyncKeyState(int key);
 
-    public static string Format(Keys key) => key == Keys.None ? "未设置" :
+    public static string Format(Keys key) => key == Keys.None ? UiText.T("未设置") :
         (key.HasFlag(WindowsModifier) ? "Win+" : "") + (new KeysConverter().ConvertToString(key & ~WindowsModifier) ?? key.ToString());
 }
 

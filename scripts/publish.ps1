@@ -14,4 +14,13 @@ foreach ($name in @('README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md')) {
     Copy-Item -LiteralPath (Join-Path $projectRoot $name) -Destination $output
 }
 Copy-Item -LiteralPath (Join-Path $projectRoot 'licenses') -Destination $output -Recurse -Force
+$docsOutput = Join-Path $output 'docs'
+New-Item -ItemType Directory -Force -Path $docsOutput | Out-Null
+foreach ($document in Get-ChildItem -LiteralPath (Join-Path $projectRoot 'docs') -Filter 'README.*.md') {
+    Copy-Item -LiteralPath $document.FullName -Destination $docsOutput -Force
+}
+foreach ($name in @('LOCALIZATION.md', 'DEVELOPMENT.md', 'languages.json')) {
+    Copy-Item -LiteralPath (Join-Path $projectRoot ('docs/' + $name)) -Destination $docsOutput -Force
+}
+Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/images') -Destination $docsOutput -Recurse -Force
 Write-Host "Published to $output"

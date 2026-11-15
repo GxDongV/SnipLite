@@ -62,6 +62,7 @@ internal sealed partial class PreferencesForm : Form
     public PreferencesForm(AppSettings settings, int startTab = 0)
     {
         _s = settings;
+        Localization.LanguageService.Configure(settings.DisplayLanguage);
         _startTab = startTab;
 
         Text = "SnipLite 首选项";
@@ -88,6 +89,23 @@ internal sealed partial class PreferencesForm : Form
         Controls.Add(_page);
         Controls.Add(_reset);
         AppTheme.Changed += ApplyTheme;
+        Localization.LanguageService.Changed += RefreshLanguage;
+    }
+
+    private bool _languageRefreshPending;
+    private void RefreshLanguage()
+    {
+        if (IsDisposed || !IsHandleCreated || _languageRefreshPending) return;
+        _languageRefreshPending = true;
+        BeginInvoke(() =>
+        {
+            _languageRefreshPending = false;
+            if (IsDisposed) return;
+            Text = UiText.T("SnipLite 首选项");
+            StyleButton(_reset, "恢复默认");
+            PlaceChrome();
+            ShowTab(_selected);
+        });
     }
 
     private void ApplyTheme()
@@ -105,7 +123,11 @@ internal sealed partial class PreferencesForm : Form
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) AppTheme.Changed -= ApplyTheme;
+        if (disposing)
+        {
+            AppTheme.Changed -= ApplyTheme;
+            Localization.LanguageService.Changed -= RefreshLanguage;
+        }
         base.Dispose(disposing);
     }
 
@@ -122,6 +144,7 @@ internal sealed partial class PreferencesForm : Form
     protected override void OnLoad(EventArgs e)
     {
         base.OnLoad(e);
+        Text = UiText.T("SnipLite 首选项");
 
         _ui = DeviceDpi / 96f;
         StyleButton(_reset, UiText.T("恢复默认", _s.DisplayLanguage));
@@ -432,7 +455,7 @@ internal sealed partial class PreferencesForm : Form
     {
         Row("程序", MakeStatic("SnipLite " + AppInfo.Version));
         var executable = MakeText(Application.ExecutablePath, FillWidth()); executable.ReadOnly = true; Row("程序文件", executable);
-        Row("运行环境", MakeStatic(".NET 10 · WinForms")); Row("识别引擎", MakeStatic("Windows OCR · ZXing.Net"));
+        Row("运行环境", MakeStatic(".NET 10 · WinForms")); Row("识别引擎", MakeStatic("SimdPaddleOCR · Windows OCR · ZXing.Net"));
         Row("GitHub 项目", MakeWebLink(AppInfo.RepositoryUrl));
         Row("问题反馈", MakeWebLink(AppInfo.IssuesUrl));
         var license = new LinkLabel { Text = "MIT License / Third-party notices", AutoSize = true,
@@ -455,7 +478,7 @@ internal sealed partial class PreferencesForm : Form
         link.LinkClicked += (_, _) =>
         {
             try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }); }
-            catch (Exception ex) { AppLog.Write("打开项目网址失败", ex); Toast.Error("无法打开浏览器，请手动访问：" + url); }
+            catch (Exception ex) { AppLog.Write("打开项目网址失败", ex); Toast.Error(UiText.T("无法打开浏览器，请手动访问：") + url); }
         };
         return link;
     }
@@ -503,6 +526,7 @@ internal sealed partial class PreferencesForm : Form
 
     private void Persist()
     {
+        Localization.LanguageService.Configure(_s.DisplayLanguage);
         _s.Save();
         Applied?.Invoke();
     }
@@ -513,7 +537,7 @@ internal sealed partial class PreferencesForm : Form
         try
         {
             var applied = await Task.Run(() => Startup.TryApply(enabled, administrator));
-            if (!applied && !IsDisposed) Toast.Error("开机启动设置未修改。");
+            if (!applied && !IsDisposed) Toast.Error(UiText.T("开机启动设置未修改。"));
             return applied;
         }
         finally { if (!IsDisposed) Enabled = true; }
@@ -541,7 +565,7 @@ internal sealed partial class PreferencesForm : Form
         if (label.Length > 0)
         {
             AddRowIcon(card, label);
-            card.Controls.Add(new Label { Text = label, AutoSize = false, Bounds = new Rectangle(Px(48), 0, Px(LabelW - 52), height),
+            card.Controls.Add(new Label { Text = label, AutoSize = false, AutoEllipsis = true, Bounds = new Rectangle(Px(48), Px(6), Px(LabelW - 52), height - Px(12)),
                 TextAlign = ContentAlignment.MiddleLeft, ForeColor = Ink, BackColor = Color.Transparent });
         }
         var x = Px(LabelW + ControlGap);
@@ -625,18 +649,21 @@ internal sealed partial class PreferencesForm : Form
     private void HintText(string text)
     {
         _y += Px(4);
+        text = UiText.T(text, _s.DisplayLanguage);
+        var height = Math.Max(Px(22), TextRenderer.MeasureText(text, Font,
+            new Size(ContentWidth(), int.MaxValue), TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix).Height + Px(4));
 
         _page.Controls.Add(new Label
         {
             Text = text,
             AutoSize = false,
-            Bounds = new Rectangle(_labelX, _y, ContentWidth(), Px(22)),
+            Bounds = new Rectangle(_labelX, _y, ContentWidth(), height),
             TextAlign = ContentAlignment.MiddleLeft,
             ForeColor = Hint,
             BackColor = Page
         });
 
-        _y += Px(HintH);
+        _y += height + Px(2);
     }
 
     private static Control MakeStatic(string text) => new Label
@@ -655,8 +682,13 @@ internal sealed partial class PreferencesForm : Form
     /// </summary>
     private Button MakeChooser(string[] options, int selected, Action<int> onChange)
     {
+        // Language names stay in their native scripts so users can always find their language.
+        var nativeLanguages = options.SequenceEqual(new[] { UiText.T("跟随系统") }
+            .Concat(Localization.LanguageService.Languages.Select(l => l.NativeName)));
+        if (!nativeLanguages) options = options.Select(option => UiText.T(option, _s.DisplayLanguage)).ToArray();
         var button = new FluentButton
         {
+            Tag = nativeLanguages ? "localization:native" : null,
             DropDown = true,
             Text = options[Math.Clamp(selected, 0, options.Length - 1)],
             AutoSize = false,
@@ -692,6 +724,8 @@ internal sealed partial class PreferencesForm : Form
                 onChange(index);
             });
             items[i].Tag = null;
+            if (nativeLanguages) items[i].Tag = "localization:native";
+            items[i].Text = options[i];
 
             menu.Items.Add(items[i]);
         }
@@ -744,6 +778,7 @@ internal sealed partial class PreferencesForm : Form
 
     private void StyleButton(Button button, string text)
     {
+        text = UiText.T(text, _s.DisplayLanguage);
         button.Text = text;
         button.AutoSize = false;
         button.FlatStyle = FlatStyle.Flat;
