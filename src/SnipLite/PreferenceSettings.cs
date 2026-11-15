@@ -5,10 +5,6 @@ namespace SnipLite;
 internal enum CaptureAction { Copy, Pin, QuickSave, None }
 internal enum PointerGesture { None, LeftDoubleClick, MiddleClick, RightClick, LeftClick }
 internal sealed record MouseBinding(Keys Modifiers, PointerGesture Gesture);
-internal sealed record CaptureRegion(int X, int Y, int Width, int Height)
-{
-    [JsonIgnore] public Rectangle Bounds => new(X, Y, Width, Height);
-}
 
 internal sealed partial class AppSettings
 {
@@ -41,13 +37,10 @@ internal sealed partial class AppSettings
     public bool CaptureCursor { get; set; }
     public bool DisableCursorCapture { get; set; }
     public bool ExitCaptureOnDeactivate { get; set; }
-    public int HistoryRegionLimit { get; set; } = 8;
-    public bool CycleHistoryRegions { get; set; }
     public int HistoryImageLimit { get; set; } = 20;
-    public List<CaptureRegion> RecentRegions { get; set; } = new();
     public string CaptureSound { get; set; } = "";
-    public bool SoundOnCopy { get; set; }
-    public bool SoundOnSave { get; set; }
+    public bool SoundOnCopy { get; set; } = false;
+    public bool SoundOnSave { get; set; } = false;
     public bool DisableCaptureWheel { get; set; }
     public bool ConfirmEscape { get; set; }
     public bool IgnoreInjectedCopy { get; set; } = true;
@@ -72,11 +65,9 @@ internal sealed partial class AppSettings
     public bool ThumbnailAcceptReset { get; set; } = true;
     public bool PinTranslucentFlash { get; set; } = true;
     public bool FlashOnGroupSwitch { get; set; } = true;
-    public bool HidePinsDuringFlash { get; set; }
     public bool KeepOriginalOnDrag { get; set; } = true;
     public bool FlashNewPin { get; set; } = true;
     public bool ActivateNewPin { get; set; } = true;
-    public int RecoverablePins { get; set; } = 1;
     public bool TextToImage { get; set; } = true;
     public bool IgnoreHtml { get; set; }
     public bool IgnoreFilePaths { get; set; } = true;
@@ -132,11 +123,7 @@ internal sealed partial class AppSettings
         PinMaxSize = Math.Clamp(PinMaxSize, 100, 20000);
         ThumbnailWidth = Math.Clamp(ThumbnailWidth, 20, 1000);
         ThumbnailHeight = Math.Clamp(ThumbnailHeight, 20, 1000);
-        HistoryRegionLimit = Math.Clamp(HistoryRegionLimit, 0, 100);
         HistoryImageLimit = Math.Clamp(HistoryImageLimit, 0, 100);
-        RecoverablePins = Math.Clamp(RecoverablePins, 0, 20);
-        RecentRegions ??= new();
-        RecentRegions = RecentRegions.Where(r => r.Width > 0 && r.Height > 0).Take(HistoryRegionLimit).ToList();
         if (string.IsNullOrWhiteSpace(QuickSaveDirectory)) QuickSaveDirectory = new AppSettings().QuickSaveDirectory;
         if (string.IsNullOrWhiteSpace(InterfaceFont)) InterfaceFont = "Microsoft YaHei UI";
         if (string.IsNullOrWhiteSpace(TextImageFont)) TextImageFont = "Microsoft YaHei UI";

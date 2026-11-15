@@ -30,9 +30,11 @@ internal sealed class HotkeyBox : TextBox
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
         var key = keyData & Keys.KeyCode;
-        if (key == Keys.Tab) return base.ProcessCmdKey(ref msg, keyData);
+        if (key is Keys.Tab or Keys.Escape) return base.ProcessCmdKey(ref msg, keyData);
         if (key is Keys.ShiftKey or Keys.ControlKey or Keys.Menu or Keys.LWin or Keys.RWin) return true;
-        Binding = key is Keys.Back or Keys.Delete ? Keys.None : HotkeyDefinitions.WithWindowsKey(keyData);
+        var candidate = HotkeyDefinitions.WithWindowsKey(keyData);
+        if (candidate is Keys.Enter or Keys.Space) return true;
+        Binding = candidate is Keys.Back or Keys.Delete ? Keys.None : candidate;
         BindingChanged?.Invoke(Binding);
         return true;
     }

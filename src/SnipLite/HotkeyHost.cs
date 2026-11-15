@@ -25,6 +25,28 @@ internal sealed class HotkeyHost : NativeWindow, IDisposable
         });
     }
 
+    private static uint Modifiers(Keys binding)
+    {
+        uint modifiers = 0;
+        if (binding.HasFlag(Keys.Control)) modifiers |= MOD_CONTROL;
+        if (binding.HasFlag(Keys.Alt)) modifiers |= MOD_ALT;
+        if (binding.HasFlag(Keys.Shift)) modifiers |= MOD_SHIFT;
+        if (binding.HasFlag(HotkeyDefinitions.WindowsModifier)) modifiers |= MOD_WIN;
+        return modifiers;
+    }
+
+    public bool CanRegister(Keys binding)
+    {
+        var id = _nextId++;
+        if (!RegisterHotKey(Handle, id, Modifiers(binding) | MOD_NOREPEAT, (uint)(binding & Keys.KeyCode)))
+            return false;
+        UnregisterHotKey(Handle, id);
+        return true;
+    }
+
+    public bool Register(Keys binding, Action handler) =>
+        Register(Modifiers(binding), binding & Keys.KeyCode, handler);
+
     public bool Register(uint modifiers, Keys key, Action handler)
     {
         var id = _nextId++;

@@ -5,6 +5,8 @@ internal sealed partial class PreferencesForm
     private readonly int[] _subPages = new int[8];
     private readonly HashSet<string> _sectionProperties = new();
     public event Action<bool>? HotkeyEditing;
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public Func<Keys, bool>? HotkeyAvailable { get; set; }
 
     private void SubPages(string[] names, params Action[] pages)
     {
@@ -255,20 +257,32 @@ internal sealed partial class PreferencesForm
         Flag("自动检测界面元素", nameof(_s.DetectElements));
         Flag("捕捉鼠标指针", nameof(_s.CaptureCursor)); Flag("完全禁用鼠标指针捕捉", nameof(_s.DisableCursorCapture));
         Flag("其他程序窗口激活时退出截屏", nameof(_s.ExitCaptureOnDeactivate));
-        Number("最大历史截屏区域数", nameof(_s.HistoryRegionLimit), 0, 100); Flag("循环历史区域", nameof(_s.CycleHistoryRegions));
-        Number("最大历史记录数", nameof(_s.HistoryImageLimit), 0, 100);
+        Number("截图及贴图各自的历史上限", nameof(_s.HistoryImageLimit), 0, 100);
         Flag("截图后自动复制", nameof(_s.CopyAfterCapture));
         var sound = MakeText((string)Value(nameof(_s.CaptureSound)), 0);
         sound.TextChanged += (_, _) => Set(nameof(_s.CaptureSound), sound.Text);
         var choose = new FluentButton(); StyleButton(choose, "更改"); choose.Click += (_, _) =>
         {
-            using var dialog = new OpenFileDialog { Filter = "WAV 音效|*.wav" };
+            using var dialog = new OpenFileDialog
+            {
+                Filter = "WAV 音效|*.wav",
+                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Windows) + @"\Media",
+                CheckFileExists = true
+            };
             if (dialog.ShowDialog(this) == DialogResult.OK) sound.Text = dialog.FileName;
         };
-        var play = new FluentButton(); StyleButton(play, "试听"); play.Click += (_, _) => Services.PlaySound(sound.Text);
-        RowFill("音效文件", sound, play, choose);
-        Flag("复制到剪贴板时播放音效", nameof(_s.SoundOnCopy)); Flag("快速保存时播放音效", nameof(_s.SoundOnSave));
-        HintText("Tab / Shift+Tab 切换历史区域；历史图像可从托盘菜单恢复。");
+        var play = new FluentButton(); StyleButton(play, "试听");
+        play.Click += async (_, _) =>
+        {
+            play.Enabled = false;
+            try { if (!await Services.PlaySoundAsync(sound.Text) && !IsDisposed) Toast.Error("无法播放音效，请选择有效的 WAV 文件。"); }
+            finally { if (!play.IsDisposed) play.Enabled = true; }
+        };
+        var resetSound = new FluentButton(); StyleButton(resetSound, "恢复默认");
+        resetSound.Click += (_, _) => sound.Clear();
+        RowFill("截图音效文件", sound, play, choose, resetSound);
+        HintText("留空使用内置截图提示音，自定义文件支持 WAV。");
+        Flag("复制到剪贴板时播放音效", nameof(_s.SoundOnCopy)); Flag("保存截图时播放音效", nameof(_s.SoundOnSave));
     }
     private void ActionRow(string label, string action, string exit)
     {
@@ -303,10 +317,9 @@ internal sealed partial class PreferencesForm
         Flag("使用鼠标滚轮缩放", nameof(_s.PinWheelZoom)); Flag("以鼠标指针为中心缩放", nameof(_s.PinZoomAtCursor));
         Flag("平滑缩放", nameof(_s.PinSmoothScaling)); Flag("缩略图接受重置操作", nameof(_s.ThumbnailAcceptReset));
         Flag("边框闪烁时使窗口半透明", nameof(_s.PinTranslucentFlash));
-        Flag("切换分组时自动闪烁贴图", nameof(_s.FlashOnGroupSwitch)); Flag("闪烁时按贴图键隐藏所有贴图", nameof(_s.HidePinsDuringFlash));
+        Flag("切换分组时自动闪烁贴图", nameof(_s.FlashOnGroupSwitch));
         Flag("拖放操作时保留原始图", nameof(_s.KeepOriginalOnDrag));
         Flag("贴出新图片时闪烁", nameof(_s.FlashNewPin)); Flag("贴出新图片时激活", nameof(_s.ActivateNewPin));
-        Number("可恢复的贴图数", nameof(_s.RecoverablePins), 0, 20);
         HintText("Alt+拖动可将图片拖到其他应用；右键可切换分组、缩略图和鼠标穿透。");
     }
     private void PinConversionPage()
@@ -346,24 +359,81 @@ internal sealed partial class PreferencesForm
         Flag("启用全局快捷键", nameof(_s.HotkeysEnabled));
         foreach (var (label, name) in HotkeyDefinitions.Items)
         {
-            var box = new HotkeyBox { Binding = (Keys)Value(name), Width = Px(240), Font = Font };
-            var status = MakeStatic(""); status.ForeColor = Muted;
-            box.Enter += (_, _) => HotkeyEditing?.Invoke(true);
-            box.Leave += (_, _) =>
+            var binding = (Keys)Value(name);
+            string BindingText() => _s.HotkeyErrors.TryGetValue(name, out var error)
+                ? $"{HotkeyDefinitions.Format(binding)} · {error}" : HotkeyDefinitions.Format(binding);
+            var current = MakeStatic(BindingText());
+            var change = new FluentButton();
+            StyleButton(change, UiText.T("更改", _s.DisplayLanguage));
+            change.Click += (_, _) =>
             {
-                HotkeyEditing?.Invoke(false);
-                status.Text = _s.HotkeyErrors.GetValueOrDefault(name, box.Binding == Keys.None ? "未设置" : "可用");
-                status.ForeColor = _s.HotkeyErrors.ContainsKey(name) ? Color.Firebrick : Color.SeaGreen;
+                HotkeyEditing?.Invoke(true);
+                try
+                {
+                    using var dialog = new Form
+                    {
+                        Text = label, StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog,
+                        AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ShowInTaskbar = false,
+                        MinimizeBox = false, MaximizeBox = false, Font = Font
+                    };
+                    var panel = new FlowLayoutPanel
+                    {
+                        AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false,
+                        Padding = new Padding(Px(12))
+                    };
+                    var box = new HotkeyBox { Binding = binding, Width = Px(310) };
+                    var status = new Label { AutoSize = true, Text = "按下新快捷键，或按 Delete 清除。" };
+                    var buttons = new FlowLayoutPanel { AutoSize = true };
+                    var confirm = new FluentButton();
+                    var cancel = new FluentButton { DialogResult = DialogResult.Cancel };
+                    StyleButton(confirm, "确认");
+                    StyleButton(cancel, "取消");
+                    confirm.Enabled = false;
+                    box.BindingChanged += candidate =>
+                    {
+                        confirm.Enabled = candidate != binding;
+                        status.Text = confirm.Enabled ? "点击确认以保存更改。" : "当前绑定未改变。";
+                    };
+                    confirm.Click += (_, _) =>
+                    {
+                        var candidate = box.Binding;
+                        if (candidate != Keys.None && HotkeyDefinitions.Items.Any(item => item.Name != name &&
+                            (Keys)typeof(AppSettings).GetProperty(item.Name)!.GetValue(_s)! == candidate))
+                        {
+                            status.Text = "与其他功能重复，请重新输入。";
+                            box.Focus();
+                            return;
+                        }
+                        if (candidate != Keys.None && name != nameof(AppSettings.CopyCoordinatesHotkey) &&
+                            HotkeyAvailable?.Invoke(candidate) == false)
+                        {
+                            status.Text = "组合键被占用或由系统保留，请重新输入。";
+                            box.Focus();
+                            return;
+                        }
+                        dialog.DialogResult = DialogResult.OK;
+                    };
+                    buttons.Controls.AddRange(new Control[] { confirm, cancel });
+                    panel.Controls.AddRange(new Control[] { box, status, buttons });
+                    dialog.Controls.Add(panel);
+                    dialog.CancelButton = cancel;
+                    dialog.ActiveControl = box;
+                    AppTheme.Apply(dialog);
+                    if (dialog.ShowDialog(this) == DialogResult.OK)
+                    {
+                        Set(name, box.Binding);
+                        binding = box.Binding;
+                    }
+                }
+                finally
+                {
+                    HotkeyEditing?.Invoke(false);
+                    current.Text = BindingText();
+                }
             };
-            box.BindingChanged += value =>
-            {
-                if (value != Keys.None && HotkeyDefinitions.Items.Any(item => item.Name != name && (Keys)typeof(AppSettings).GetProperty(item.Name)!.GetValue(_s)! == value))
-                { status.Text = "与其他功能重复"; status.ForeColor = Color.Firebrick; return; }
-                Set(name, value); status.Text = value == Keys.None ? "未设置" : "移开焦点后生效";
-            };
-            Row(label, box, status);
+            Row(label, change, current);
         }
-        HintText("点击输入框后按快捷键；Backspace / Delete 清除。外部占用会显示原因。");
+        HintText("点击「更改」录入快捷键，确认后生效。");
     }
     private void ModifierRow(string label, string property)
         => Choice(label, property, new[] { "无", "Ctrl", "Alt", "Shift", "Ctrl+Shift", "Ctrl+Alt" },

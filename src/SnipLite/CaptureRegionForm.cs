@@ -11,7 +11,7 @@ internal sealed class CaptureRegionForm : Form
         ClientSize = new Size(330, 220); FormBorderStyle = FormBorderStyle.FixedDialog;
         StartPosition = FormStartPosition.CenterScreen; ShowInTaskbar = false; MinimizeBox = MaximizeBox = false;
         var screen = SystemInformation.VirtualScreen;
-        var initial = settings.RecentRegions.FirstOrDefault()?.Bounds ?? new Rectangle(screen.X, screen.Y, Math.Min(800, screen.Width), Math.Min(500, screen.Height));
+        var initial = new Rectangle(screen.X, screen.Y, Math.Min(800, screen.Width), Math.Min(500, screen.Height));
         var labels = new[] { "X", "Y", "宽度", "高度" }; var values = new[] { initial.X, initial.Y, initial.Width, initial.Height };
         _numbers = new NumericUpDown[4];
         for (var i = 0; i < 4; i++)

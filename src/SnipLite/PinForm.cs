@@ -6,14 +6,23 @@ namespace SnipLite;
 internal sealed class PinForm : Form
 {
     private static readonly List<PinForm> Open = new();
-    private static readonly LinkedList<(byte[] Png, Point Location, int Group)> ClosedPins = new();
+    private sealed record HistoryEntry(byte[] Png)
+    {
+        public Point Location { get; set; }
+    }
+
+    private static readonly List<HistoryEntry> History = new();
+    private HistoryEntry? _historyEntry;
     private static int _group = 1;
-    private static bool _exiting;
     private readonly Bitmap _image;
     private readonly AppSettings _settings;
     private Point _location;
     private Size _windowSize;
     private float _scale = 1;
+    private const float MinZoom = .1f;
+    private const float MaxZoom = 5f;
+    private readonly System.Windows.Forms.Timer _zoomBadgeTimer = new() { Interval = 1000 };
+    private float MaxScale => Math.Min(MaxZoom, _settings.PinMaxSize / (float)Math.Max(_image.Width, _image.Height));
     private double _opacity;
     private bool _dragging;
     private Point _grab;
@@ -31,7 +40,7 @@ internal sealed class PinForm : Form
     public Bitmap Image => _image;
     public static bool AnyVisible => Open.Any(form => form.Visible);
     public static int OpenCount => Open.Count;
-    public static int RecoverableCount => ClosedPins.Count;
+    public static int RecoverableCount => History.Count(entry => !Open.Any(pin => pin._historyEntry == entry));
 
     public PinForm(Bitmap image, Point? screenPoint = null, int opacityPercent = 100, AppSettings? settings = null)
     {
@@ -50,7 +59,13 @@ internal sealed class PinForm : Form
             Opacity = _settings.PinTranslucentFlash && _flashTicks > 0 && _flashTicks % 2 == 0 ? Math.Min(.65, _opacity) : _opacity;
             Invalidate(); if (_flashTicks <= 0) _flashTimer.Stop();
         };
-        VisibleChanged += (_, _) => { if (!Visible) _shadow?.Hide(); else if (IsHandleCreated) UpdateShadow(); };
+        _zoomBadgeTimer.Tick += (_, _) => { _zoomBadgeTimer.Stop(); Invalidate(); };
+        VisibleChanged += (_, _) =>
+        {
+            if (!Visible) { _shadow?.Hide(); return; }
+            RecordHistory();
+            if (IsHandleCreated) UpdateShadow();
+        };
     }
     protected override bool ShowWithoutActivation => !_settings.ActivateNewPin;
     public static void ApplySettingsToAll()
@@ -63,7 +78,7 @@ internal sealed class PinForm : Form
         }
     }
     public static void CloseAll() { foreach (var pin in Open.ToArray()) pin.Close(); }
-    public static void CloseAllForExit() { _exiting = true; CloseAll(); ClosedPins.Clear(); }
+    public static void CloseAllForExit() { CloseAll(); History.Clear(); }
     public static void HideAll() { foreach (var pin in Open.ToArray()) pin.Hide(); }
     public static void ShowAll()
     {
@@ -87,9 +102,8 @@ internal sealed class PinForm : Form
         if (pin is null) { Toast.Show("当前没有贴图"); return; }
         pin.ToggleMouseThrough();
     }
-    public static bool RestoreHiddenOrFlashing(AppSettings settings)
+    public static bool RestoreHidden()
     {
-        if (settings.HidePinsDuringFlash && Open.Any(pin => pin._flashTicks > 0)) { HideAll(); return true; }
         if (Open.Any(pin => !pin.Visible && pin._pinGroup == _group)) { ShowAll(); return true; }
         return false;
     }
@@ -98,14 +112,54 @@ internal sealed class PinForm : Form
         var pin = Open.LastOrDefault(pin => pin._pinGroup == _group);
         if (pin is null) return false; ShowAll(); pin.Activate(); return true;
     }
+    public static void TrimHistory(int limit)
+    {
+        if (History.Count > limit) History.RemoveRange(limit, History.Count - limit);
+    }
+
     public static bool RestoreLast(AppSettings settings)
     {
-        if (ClosedPins.Last is not { } node) return false;
-        var saved = node.Value; ClosedPins.RemoveLast(); _group = saved.Group;
-        using var stream = new MemoryStream(saved.Png); using var decoded = new Bitmap(stream);
-        var image = new Bitmap(decoded);
-        var pin = new PinForm(image, new Point(saved.Location.X + image.Width / 2, saved.Location.Y + image.Height / 2), settings.PinOpacityPercent, settings);
-        pin.Show(); return true;
+        TrimHistory(settings.HistoryImageLimit);
+        var entry = History.FirstOrDefault(item => !Open.Any(pin => pin._historyEntry == item));
+        if (entry is null) return false;
+
+        using var stream = new MemoryStream(entry.Png);
+        using var decoded = new Bitmap(stream);
+        var pin = new PinForm(new Bitmap(decoded), opacityPercent: settings.PinOpacityPercent, settings: settings)
+        {
+            _historyEntry = entry,
+            _location = entry.Location
+        };
+        pin.ShowBesideExisting();
+        return true;
+    }
+
+    private void RecordHistory()
+    {
+        if (_historyEntry is not null || _settings.HistoryImageLimit <= 0) return;
+        using var stream = new MemoryStream();
+        _image.Save(stream, System.Drawing.Imaging.ImageFormat.Png);
+        _historyEntry = new HistoryEntry(stream.ToArray()) { Location = _location };
+        History.Insert(0, _historyEntry);
+        TrimHistory(_settings.HistoryImageLimit);
+    }
+
+    internal void ShowBesideExisting()
+    {
+        var area = Screen.FromRectangle(new Rectangle(_location, _windowSize)).WorkingArea;
+        var step = Math.Max(20, (int)Math.Round(24 * DeviceDpi / 96f));
+        var occupied = Open.Where(pin => pin != this && pin.Visible)
+            .Select(pin => pin._location).ToHashSet();
+        var origin = _location;
+        for (var i = 1; occupied.Any(point => Math.Abs(point.X - _location.X) < step / 2 &&
+             Math.Abs(point.Y - _location.Y) < step / 2) && i <= occupied.Count * 2; i++)
+        {
+            var offset = ((i + 1) / 2) * step * (i % 2 == 0 ? -1 : 1);
+            _location = new Point(
+                Math.Clamp(origin.X + offset, area.Left, Math.Max(area.Left, area.Right - _windowSize.Width)),
+                Math.Clamp(origin.Y + offset, area.Top, Math.Max(area.Top, area.Bottom - _windowSize.Height)));
+        }
+        Show();
     }
     public static void ResetAllScale() { foreach (var pin in Open.ToArray()) pin.Reset(); }
     public static void ResetAllOpacity() { foreach (var pin in Open.ToArray()) { pin._opacity = 1; pin.Opacity = 1; } }
@@ -118,21 +172,16 @@ internal sealed class PinForm : Form
     }
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
-        Open.Remove(this); _flashTimer.Dispose(); _shadow?.Close(); _shadow?.Dispose();
-        if (!_exiting && _settings.RecoverablePins > 0)
-        {
-            using var stream = new MemoryStream(); _image.Save(stream, System.Drawing.Imaging.ImageFormat.Png);
-            ClosedPins.AddLast((stream.ToArray(), _location, _pinGroup));
-            while (ClosedPins.Count > _settings.RecoverablePins) ClosedPins.RemoveFirst();
-        }
+        Open.Remove(this); _flashTimer.Dispose(); _zoomBadgeTimer.Dispose(); _shadow?.Close(); _shadow?.Dispose();
+        if (_historyEntry is not null) _historyEntry.Location = _location;
         _image.Dispose(); base.OnFormClosed(e);
     }
     private void Flash() { _flashTicks = 6; _flashTimer.Start(); Invalidate(); }
     private void ApplyLayout()
     {
-        var limit = _settings.PinMaxSize / (float)Math.Max(_image.Width, _image.Height);
-        _scale = Math.Clamp(_scale, .02f, Math.Min(8, Math.Max(.02f, limit)));
+        _scale = Math.Min(_scale, MaxScale);
         _windowSize = new Size(Math.Max(1, (int)Math.Round(_image.Width * _scale)), Math.Max(1, (int)Math.Round(_image.Height * _scale)));
+        ClampIntoVirtualScreen();
         Win32.SetWindowPos(Handle, Win32.HWND_TOPMOST, _location.X, _location.Y, _windowSize.Width, _windowSize.Height, Win32.SWP_NOACTIVATE);
         UpdateShadow(); Invalidate();
     }
@@ -160,6 +209,17 @@ internal sealed class PinForm : Form
         var g = e.Graphics;
         g.InterpolationMode = _settings.PinSmoothScaling ? InterpolationMode.HighQualityBicubic : InterpolationMode.NearestNeighbor;
         g.PixelOffsetMode = PixelOffsetMode.Half; g.DrawImage(_image, new Rectangle(Point.Empty, _windowSize));
+        if (_zoomBadgeTimer.Enabled)
+        {
+            var label = $"{_scale:P0}";
+            var padding = Math.Max(3, DeviceDpi / 24);
+            var size = TextRenderer.MeasureText(label, Font);
+            var badge = new Rectangle(padding, padding, size.Width + padding * 2, size.Height + padding);
+            using var background = new SolidBrush(Color.FromArgb(220, 25, 25, 25));
+            g.FillRectangle(background, badge);
+            TextRenderer.DrawText(g, label, Font, badge, Color.White,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
+        }
         if (_flashTicks > 0 && _flashTicks % 2 == 0)
         { using var border = new Pen(_settings.Accent, Math.Max(2, 2 * DeviceDpi / 96f)); g.DrawRectangle(border, 1, 1, Math.Max(1, _windowSize.Width - 2), Math.Max(1, _windowSize.Height - 2)); }
     }
@@ -214,9 +274,13 @@ internal sealed class PinForm : Form
     private void Zoom(float factor)
     {
         var previous = _scale; var anchor = _settings.PinZoomAtCursor ? Win32.CursorPosition() : new Point(_location.X + _windowSize.Width / 2, _location.Y + _windowSize.Height / 2);
-        _scale = Math.Clamp(_scale * factor, .02f, Math.Min(8, Math.Max(.02f, _settings.PinMaxSize / (float)Math.Max(_image.Width, _image.Height))));
+        var max = MaxScale;
+        _scale = Math.Clamp(_scale * factor, Math.Min(MinZoom, max), max);
         _location = new Point((int)Math.Round(anchor.X - (anchor.X - _location.X) * _scale / previous), (int)Math.Round(anchor.Y - (anchor.Y - _location.Y) * _scale / previous));
-        _thumbnail = false; ClampIntoVirtualScreen(); ApplyLayout();
+        _thumbnail = false;
+        _zoomBadgeTimer.Stop();
+        _zoomBadgeTimer.Start();
+        ApplyLayout();
     }
     protected override void OnKeyDown(KeyEventArgs e)
     {

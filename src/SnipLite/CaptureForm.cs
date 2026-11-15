@@ -78,7 +78,6 @@ internal sealed partial class CaptureForm : Form
     private long _lastAutomationQuery;
     private Point? _lastAutomationPoint;
     private long _lastAutomationResolvedAt;
-    private int _historyIndex = -1;
     private readonly Rectangle? _preset;
     private CaptureKeyboardHook? _keyboardHook;
     private readonly List<ContextMenuStrip> _optionMenus = new();
@@ -312,7 +311,7 @@ internal sealed partial class CaptureForm : Form
             }
             if (_settings.CaptureShortcutHints)
             {
-                var hint = "拖动框选 / 单击窗口 · 右键取消 · Alt 放大镜 · Tab 历史区域";
+                var hint = "拖动框选 / 单击窗口 · 右键取消 · Alt 放大镜";
                 var box = new Rectangle((int)(20 * Ui), _virtual.Height - (int)(42 * Ui), (int)(600 * Ui), (int)(28 * Ui));
                 using var back = new SolidBrush(AppTheme.Current.Card);
                 using var hintPath = FluentDrawing.Rounded(box, 6 * Ui); g.FillPath(back, hintPath);
@@ -796,6 +795,8 @@ internal sealed partial class CaptureForm : Form
             }
 
             Invalidate();
+            if (_hasSelection && _settings.CopyAfterCapture && !_ocrCapture && !_qrCaptureOnly && !_translationCapture)
+                CopySelectionToClipboard();
             if (_translationCapture && _hasSelection && !TranslationVisible) _ = TranslateSelectionAsync();
             else if (_ocrCapture && _hasSelection) _ = RecognizeSelectionAsync(ocr: true);
             else if (_qrCaptureOnly && _hasSelection) _ = RecognizeSelectionAsync(ocr: false);
@@ -813,6 +814,8 @@ internal sealed partial class CaptureForm : Form
             _dragMode = 0;
             Capture = false;
             Invalidate();
+            if (_hasSelection && _settings.CopyAfterCapture && !_ocrCapture && !_qrCaptureOnly && !_translationCapture)
+                CopySelectionToClipboard();
             if (_translationCapture && _hasSelection && !TranslationVisible) _ = TranslateSelectionAsync();
             else if (_ocrCapture && _hasSelection) _ = RecognizeSelectionAsync(ocr: true);
             else if (_qrCaptureOnly && _hasSelection) _ = RecognizeSelectionAsync(ocr: false);
@@ -941,7 +944,6 @@ internal sealed partial class CaptureForm : Form
             ExecuteAction(_settings.EnterAction, _settings.EnterExit);
             return true;
         }
-        if (keyData is Keys.Tab or (Keys.Shift | Keys.Tab)) { CycleRegion(keyData.HasFlag(Keys.Shift)); return true; }
         if (keyData == (Keys.Control | Keys.Shift | Keys.S)) { ExecuteAction(CaptureAction.QuickSave, false); return true; }
 
         // Ctrl+T remains an in-capture alias for the pin action.
@@ -1257,18 +1259,6 @@ internal sealed partial class CaptureForm : Form
             || !_hoverTarget.IsEmpty && (long)next.Width * next.Height >= (long)_hoverTarget.Width * _hoverTarget.Height) return;
         var dirty = Rectangle.Union(_hoverTarget, next); dirty.Inflate(4, 4);
         _hoverTarget = next; Invalidate(dirty);
-    }
-    private void CycleRegion(bool backwards)
-    {
-        var regions = _settings.RecentRegions;
-        if (regions.Count == 0) return;
-        var next = _historyIndex + (backwards ? -1 : 1);
-        if (_historyIndex < 0) next = backwards ? regions.Count - 1 : 0;
-        _historyIndex = _settings.CycleHistoryRegions ? (next + regions.Count) % regions.Count : Math.Clamp(next, 0, regions.Count - 1);
-        var bounds = regions[_historyIndex].Bounds; bounds.Offset(-_virtual.X, -_virtual.Y);
-        _selection = Rectangle.Intersect(bounds, new Rectangle(Point.Empty, _virtual.Size));
-        _hasSelection = _selection.Width > 0 && _selection.Height > 0;
-        Invalidate();
     }
     protected override void OnMouseWheel(MouseEventArgs e)
     {
@@ -1622,6 +1612,7 @@ internal sealed partial class CaptureForm : Form
             using var image = RenderComposite(crop);
             var jpeg = dialog.FilterIndex == 2;
             Services.SaveImage(image, dialog.FileName, jpeg, _settings.JpegQuality);
+            if (_settings.SoundOnSave) _ = Services.PlaySoundAsync(_settings.CaptureSound);
             if (_settings.RememberImageExtension) { _settings.LastImageExtension = jpeg ? ".jpg" : ".png"; _settings.Save(); }
             Toast.Show("已保存：" + Path.GetFileName(dialog.FileName));
         }
@@ -1629,6 +1620,18 @@ internal sealed partial class CaptureForm : Form
         {
             Toast.Show("保存失败：" + ex.Message);
         }
+    }
+
+    private void CopySelectionToClipboard()
+    {
+        var crop = Crop;
+        if (crop.Width < 1 || crop.Height < 1) return;
+        try
+        {
+            using var image = RenderComposite(crop);
+            Services.CopyImage(image, _settings.CaptureBitmapClipboard, _settings);
+        }
+        catch (Exception ex) { AppLog.Write("自动复制截图失败", ex); Toast.Error("自动复制截图失败：" + ex.Message); }
     }
 
     private void Confirm()

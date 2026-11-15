@@ -12,7 +12,7 @@ internal sealed class TrayContext : ApplicationContext
     private bool _editingHotkey;
     private string _hotkeySignature = "";
     private string _menuSignature = "";
-    private uint _lastPasteSequence;
+    private uint? _lastPasteSequence;
 
     public TrayContext(bool captureOnStart = false, int openPreferencesTab = -1, bool openMenu = false)
     {
@@ -50,7 +50,7 @@ internal sealed class TrayContext : ApplicationContext
         if (_settings.EnhancedTrayMenu)
         {
             menu.Items.Add(SnipMenu.Item("切换到另一贴图分组", PinForm.SwitchGroup, HotkeyDefinitions.Format(_settings.SwitchGroupHotkey)));
-            menu.Items.Add(SnipMenu.Item("恢复最近关闭的贴图", () => PinForm.RestoreLast(_settings)));
+            menu.Items.Add(SnipMenu.Item("恢复历史贴图", () => PinForm.RestoreLast(_settings)));
             menu.Items.Add(SnipMenu.Item("关闭全部贴图", PinForm.CloseAll));
             var history = new ToolStripMenuItem("截屏历史");
             history.DropDownOpening += (_, _) =>
@@ -62,7 +62,7 @@ internal sealed class TrayContext : ApplicationContext
                 if (history.DropDownItems.Count == 0) history.DropDownItems.Add(new ToolStripMenuItem("暂无截屏历史") { Enabled = false });
             };
             menu.Items.Add(history);
-            menu.Items.Add(SnipMenu.Item("清空截屏历史", () => { _history.Clear(); _settings.RecentRegions.Clear(); _settings.Save(); }));
+            menu.Items.Add(SnipMenu.Item("清空截屏历史", _history.Clear));
         }
         menu.Items.Add(new ToolStripSeparator());
         var disable = SnipMenu.Item("禁用快捷键", () => { _settings.HotkeysEnabled = !_settings.HotkeysEnabled; _settings.Save(); ApplySettings(); });
@@ -84,6 +84,7 @@ internal sealed class TrayContext : ApplicationContext
         if (_prefs is { IsDisposed: false }) { _prefs.Activate(); _prefs.SelectTab(tab); return; }
         _prefs = new PreferencesForm(_settings, tab);
         _prefs.Applied += ApplySettings;
+        _prefs.HotkeyAvailable = _hotkeys.CanRegister;
         _prefs.HotkeyEditing += editing => { _editingHotkey = editing; _hotkeySignature = ""; ApplyHotkeys(); };
         _prefs.FormClosed += (_, _) => { _prefs = null; _editingHotkey = false; _hotkeySignature = ""; ApplyHotkeys(); };
         _prefs.Show();
@@ -102,6 +103,7 @@ internal sealed class TrayContext : ApplicationContext
             if (oldMenu is not null) SynchronizationContext.Current?.Post(_ => oldMenu.Dispose(), null);
         }
         _history.Trim(_settings.HistoryImageLimit);
+        PinForm.TrimHistory(_settings.HistoryImageLimit);
         PinForm.ApplySettingsToAll(); ApplyHotkeys();
     }
     private void ApplyHotkeys()
@@ -127,12 +129,7 @@ internal sealed class TrayContext : ApplicationContext
         {
             var binding = (Keys)typeof(AppSettings).GetProperty(name)!.GetValue(_settings)!;
             if (binding == Keys.None || name == nameof(AppSettings.CopyCoordinatesHotkey)) continue;
-            uint mods = 0;
-            if (binding.HasFlag(Keys.Control)) mods |= HotkeyHost.MOD_CONTROL;
-            if (binding.HasFlag(Keys.Alt)) mods |= HotkeyHost.MOD_ALT;
-            if (binding.HasFlag(Keys.Shift)) mods |= HotkeyHost.MOD_SHIFT;
-            if (binding.HasFlag(HotkeyDefinitions.WindowsModifier)) mods |= HotkeyHost.MOD_WIN;
-            if (_hotkeys.Register(mods, binding & Keys.KeyCode, handlers[name])) continue;
+            if (_hotkeys.Register(binding, handlers[name])) continue;
             _settings.HotkeyErrors[name] = "已被其他程序占用";
             Toast.Error($"{label}快捷键 {HotkeyDefinitions.Format(binding)} 已被占用");
         }
@@ -168,9 +165,6 @@ internal sealed class TrayContext : ApplicationContext
         try
         {
             _history.Add(result.Image, result.Bounds, _settings.HistoryImageLimit);
-            _settings.RecentRegions.RemoveAll(region => region.Bounds == result.Bounds);
-            _settings.RecentRegions.Insert(0, new(result.Bounds.X, result.Bounds.Y, result.Bounds.Width, result.Bounds.Height));
-            _settings.RecentRegions = _settings.RecentRegions.Take(_settings.HistoryRegionLimit).ToList(); _settings.Save();
             if (_settings.AutoSave) Services.SaveCaptureFile(result.Image, _settings, _settings.SaveDirectory);
             if (result.Pin || result.Action == CaptureAction.Pin)
             { PinImage(result.Image, result.Bounds); transferred = true; }
@@ -178,48 +172,47 @@ internal sealed class TrayContext : ApplicationContext
             {
                 var path = Services.SaveCaptureFile(result.Image, _settings, _settings.QuickSaveDirectory);
                 if (_settings.QuickSaveToast) Toast.Show("已保存：" + Path.GetFileName(path));
-                if (_settings.SoundOnSave) Services.PlaySound(_settings.CaptureSound);
+
             }
             else if (forceCopy || result.Action == CaptureAction.Copy || _settings.CopyAfterCapture)
             {
-                Services.CopyImage(result.Image, _settings.CaptureBitmapClipboard);
-                if (_settings.SoundOnCopy) Services.PlaySound(_settings.CaptureSound);
+                Services.CopyImage(result.Image, _settings.CaptureBitmapClipboard, _settings);
+                if (_history.Entries.Count > 0) _lastPasteSequence = GetClipboardSequenceNumber();
+
                 Toast.Show($"已复制  {result.Image.Width} × {result.Image.Height}");
             }
         }
         catch (Exception ex) { AppLog.Write("截图输出失败", ex); Toast.Error("截图输出失败：" + ex.Message); }
         finally { if (!transferred) result.Image.Dispose(); }
     }
-    private void PinImage(Bitmap image, Rectangle? bounds = null)
+    private void PinImage(Bitmap image, Rectangle? bounds = null, bool stagger = false)
     {
         Point? point = _settings.PinAtCapturePosition && bounds is Rectangle r ? new Point(r.X + r.Width / 2, r.Y + r.Height / 2) : null;
-        var pin = new PinForm(image, point, _settings.PinOpacityPercent, _settings); pin.Show();
+        var pin = new PinForm(image, point, _settings.PinOpacityPercent, _settings);
+        if (stagger) pin.ShowBesideExisting(); else pin.Show();
     }
     private void PasteFromClipboard()
     {
         if (TryPinActiveCapture(_overlay)) return;
-        if (PinForm.RestoreHiddenOrFlashing(_settings)) return;
+        if (PinForm.RestoreHidden()) return;
         var sequence = GetClipboardSequenceNumber();
-        if (_lastPasteSequence == sequence)
-        {
-            if (PinForm.RestoreLast(_settings) || PinForm.ActivateExisting()) return;
-        }
+        var newClipboard = _lastPasteSequence != sequence;
         _lastPasteSequence = sequence;
         try
         {
-            var image = Services.ClipboardImage();
-            if (image is not null) { PinImage(image); return; }
-            if (_settings.TextToImage && Clipboard.ContainsText())
+            var image = newClipboard ? Services.ClipboardImage() : null;
+            if (image is not null) { PinImage(image, stagger: true); return; }
+            if (newClipboard && _settings.TextToImage && Clipboard.ContainsText())
             {
                 var text = Clipboard.GetText();
                 if (!_settings.IgnoreFilePaths || !TextImageRenderer.IsFilePath(text))
                 {
                     var html = !_settings.IgnoreHtml && Clipboard.ContainsText(TextDataFormat.Html) ? Clipboard.GetText(TextDataFormat.Html) : null;
-                    PinImage(TextImageRenderer.Render(text, html, _settings)); return;
+                    PinImage(TextImageRenderer.Render(text, html, _settings), stagger: true); return;
                 }
             }
             if (PinForm.RestoreLast(_settings)) return;
-            if (_history.Entries.FirstOrDefault() is { } entry) { PinImage(entry.Image(), entry.Bounds); return; }
+            if (PinForm.ActivateExisting()) return;
             Toast.Show("剪贴板中没有可贴出的内容，也没有可恢复的贴图");
         }
         catch (Exception ex) { AppLog.Write("贴图失败", ex); Toast.Error("贴图失败：" + ex.Message); }

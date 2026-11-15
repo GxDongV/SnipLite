@@ -16,8 +16,8 @@ internal static class TextImageRenderer
     {
         var runs = html is not null && !settings.IgnoreHtml ? ParseHtml(html) : new List<Run> { new(text, FontStyle.Regular) };
         if (runs.Count == 0) runs.Add(new(text, FontStyle.Regular));
-        var margin = settings.TextImageMargin;
-        var maxWidth = Math.Max(20, settings.TextImageMaxWidth - margin * 2);
+        var margin = Math.Min(settings.TextImageMargin, (settings.TextImageMaxWidth - 20) / 2);
+        var maxWidth = settings.TextImageMaxWidth - margin * 2;
         using var measure = new Bitmap(1, 1);
         using var g = Graphics.FromImage(measure);
         using var normal = new Font(settings.TextImageFont, settings.TextImageFontSize);
@@ -43,7 +43,8 @@ internal static class TextImageRenderer
             }
         }
         width = Math.Max(width, x);
-        var image = new Bitmap(width + margin * 2, Math.Max(1, y + lineHeight + margin * 2));
+        var image = new Bitmap(Math.Min(settings.TextImageMaxWidth, width + margin * 2),
+            Math.Max(1, y + lineHeight + margin * 2));
         using var output = Graphics.FromImage(image);
         output.Clear(Color.FromArgb(settings.TextImageBackground));
         output.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
