@@ -67,7 +67,7 @@ internal sealed partial class PreferencesForm
             if (dialog.ShowDialog(this) != DialogResult.OK) return;
             typeof(AppSettings).GetProperty(family)!.SetValue(_s, dialog.Font.Name);
             typeof(AppSettings).GetProperty(size)!.SetValue(_s, dialog.Font.SizeInPoints);
-            if (family == nameof(_s.InterfaceFont)) Font = _s.CreateInterfaceFont();
+            if (family == nameof(_s.InterfaceFont)) ApplyInterfaceFont();
             button.Text = $"{dialog.Font.Name}, {dialog.Font.SizeInPoints:0.#}";
             Persist();
         };

@@ -36,6 +36,7 @@ internal sealed partial class PreferencesForm : Form
     private readonly List<(Rectangle Rect, int Index)> _tabRects = new();
 
     private readonly AppSettings _s;
+    private Font? _interfaceFont;
     private sealed class BufferedPage : Panel
     {
         public BufferedPage() { DoubleBuffered = true; ResizeRedraw = true; }
@@ -73,7 +74,7 @@ internal sealed partial class PreferencesForm : Form
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Chrome;
-        Font = settings.CreateInterfaceFont();
+        ApplyInterfaceFont();
         AutoScaleMode = AutoScaleMode.None;
         KeyPreview = true;
         DoubleBuffered = true;
@@ -128,7 +129,18 @@ internal sealed partial class PreferencesForm : Form
             AppTheme.Changed -= ApplyTheme;
             Localization.LanguageService.Changed -= RefreshLanguage;
         }
-        base.Dispose(disposing);
+        try { base.Dispose(disposing); }
+        finally
+        {
+            if (disposing) { _interfaceFont?.Dispose(); _interfaceFont = null; }
+        }
+    }
+
+    private void ApplyInterfaceFont()
+    {
+        var previous = _interfaceFont;
+        Font = _interfaceFont = _s.CreateInterfaceFont();
+        previous?.Dispose();
     }
 
     // ---------------------------------------------------------------- layout
@@ -553,7 +565,7 @@ internal sealed partial class PreferencesForm : Form
             var property = typeof(AppSettings).GetProperty(name)!;
             property.SetValue(_s, property.GetValue(defaults));
         }
-        Font = _s.CreateInterfaceFont();
+        ApplyInterfaceFont();
         Toast.Notifications = _s.ShowToast;
         Persist();
         ShowTab(_selected);
@@ -706,13 +718,14 @@ internal sealed partial class PreferencesForm : Form
         button.FlatAppearance.MouseOverBackColor = AppTheme.Current.Hover;
         button.FlatAppearance.MouseDownBackColor = AppTheme.Current.AccentSoft;
 
-        // One menu for the life of the chooser, owned by the button so it is
-        // disposed together with it. Re-creating (and disposing) the menu on
-        // every click upsets ToolStripManager's message filter.
+        // Keep one menu per chooser. ContextMenuStrip is a shared-reference
+        // property, so the button does not dispose it automatically. Release
+        // it after the closing stack unwinds when its page is rebuilt.
         var menu = SnipMenu.Create();
         var items = new ToolStripMenuItem[options.Length];
 
         button.ContextMenuStrip = menu;
+        button.Disposed += (_, _) => SnipMenu.DisposeAfterClose(menu);
 
         for (var i = 0; i < options.Length; i++)
         {
