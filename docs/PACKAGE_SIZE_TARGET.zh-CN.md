@@ -4,7 +4,9 @@
 
 资源复查：已修复截图/贴图直接销毁漏清理，以及关闭贴图后菜单主题订阅持有窗体的问题；300 轮隐藏窗体生命周期检查通过，没有显示截图或贴图。该检查不替代尚未完成的可视/长期压力验收，详见 [RESOURCE_LIFETIME_RESULTS.zh-CN.md](RESOURCE_LIFETIME_RESULTS.zh-CN.md)。
 
-后续已修复首选项页面重建时下拉菜单持有旧页面，以及界面字体替换后的释放遗漏；八语言资源检查和 300 次隐藏页面切换通过。最新本地候选位于 `.local/preferences-lifetime/final/`，验收范围见同一资源复查报告第 4 节。
+后续已修复首选项页面重建时下拉菜单持有旧页面，以及界面字体替换后的释放遗漏；八语言资源检查和 300 次隐藏页面切换通过。首选项候选位于 `.local/preferences-lifetime/final/`，验收范围见同一资源复查报告第 4 节。
+
+最新继续完成 OCR 排队取消：Esc、窗体关闭和翻译重选可取消旧请求，同一贴图不重复排队，翻译等待时提前释放 OCR 输入图。非可视化取消与恢复检查、模拟译文覆盖层检查通过；最新候选位于 `.local/ocr-cancellation/final/`，详见资源复查报告第 5 节。
 
 后续进度（2026-11-17）：在正式 v0.3.14 基础上继续完成设计器审计和 ZIP 压缩优化，本地候选单文件 / 安装版 / ZIP 分别为 76.95 / 60.14 / 71.12 MiB，便携目录 138.33 MiB。完整结果见 [RUNTIME_SIZE_RESULTS.zh-CN.md](RUNTIME_SIZE_RESULTS.zh-CN.md)；本文件原有回填表保持上一轮发布口径。
 
@@ -434,4 +436,4 @@ WinForms 主程序集和 `System.*` 基础库未出现在已看到的列表里�
 - 修复覆盖安装遗留旧版依赖的问题，v0.3.13 和 v0.3.14 升级清理均已验证；新包重新构建两次并核对内容。
 - 用户确认暂时没有干净 Windows 测试机；已生成无需 SDK、无需联网的离线验收包，完整解压哈希和 Windows PowerShell 5 仅校验模式通过。
 - 可视压力测试造成桌面闪烁，已按用户反馈停止并恢复原程序/配置。300 轮未完成，不能标记通过；真实应用逐点对照、多屏混合 DPI、长期资源及干净系统验证转为待办。
-- 前轮体积/安装验收产物位于 `.local/package-acceptance/final/`；截图/贴图资源修复候选位于 `.local/lifetime-audit/final/`；最新首选项资源修复候选位于 `.local/preferences-lifetime/final/`，对应离线套件已更新并通过清单校验。均未推送或发布，范围和校验码分别见 [安装与体积验收](PACKAGE_ACCEPTANCE_RESULTS.zh-CN.md) 和 [资源生命周期复查](RESOURCE_LIFETIME_RESULTS.zh-CN.md)。
+- 前轮体积/安装验收产物位于 `.local/package-acceptance/final/`；截图/贴图资源修复位于 `.local/lifetime-audit/final/`，首选项资源修复位于 `.local/preferences-lifetime/final/`，最新 OCR 取消候选位于 `.local/ocr-cancellation/final/`。各轮对应离线套件及清单分开保留，均未推送或发布；范围和校验码分别见 [安装与体积验收](PACKAGE_ACCEPTANCE_RESULTS.zh-CN.md) 和 [资源生命周期复查](RESOURCE_LIFETIME_RESULTS.zh-CN.md)。
