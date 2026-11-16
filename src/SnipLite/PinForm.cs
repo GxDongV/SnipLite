@@ -336,7 +336,9 @@ internal sealed class PinForm : Form
     private async Task RecognizeText()
     {
         using var snapshot = new Bitmap(_image);
-        var text = await Task.Run(() => Services.OcrAsync(snapshot, _settings.OcrLanguage, _settings.OcrEngine));
+        string text;
+        try { text = (await Task.Run(() => Services.RecognizeTextAsync(snapshot))).Text; }
+        catch (Exception ex) { Toast.Error(UiText.T("识别失败：") + ex.Message); return; }
         if (string.IsNullOrWhiteSpace(text)) { Toast.Show(UiText.T("没有识别到文字")); return; }
         try { Clipboard.SetText(text); Toast.Show(UiText.T("文字已复制")); } catch { Toast.Error(UiText.T("复制失败，请重试")); }
     }

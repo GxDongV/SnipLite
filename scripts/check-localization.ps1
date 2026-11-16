@@ -4,7 +4,11 @@ $resourceRoot = Join-Path $projectRoot 'src/SnipLite/Localization/Resources'
 $languages = Get-Content (Join-Path $projectRoot 'docs/languages.json') -Raw -Encoding utf8 | ConvertFrom-Json
 function Read-ResourceMap([string]$Path) {
     $map = [Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal)
-    $data = Get-Content -LiteralPath $Path -Raw -Encoding utf8 | ConvertFrom-Json
+    $json = Get-Content -LiteralPath $Path -Raw -Encoding utf8
+    # Match the application's strict parser (ConvertFrom-Json permits trailing commas).
+    $parsed = [System.Text.Json.JsonDocument]::Parse($json)
+    $parsed.Dispose()
+    $data = $json | ConvertFrom-Json
     foreach ($property in $data.PSObject.Properties) { $map.Add($property.Name, [string]$property.Value) }
     return ,$map
 }

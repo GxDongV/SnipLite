@@ -73,7 +73,7 @@ internal sealed partial class CaptureForm
         using var image = _screenshot.Clone(crop, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
         try
         {
-            var document = await Task.Run(() => Services.RecognizeTextAsync(image, _settings.OcrLanguage, _settings.OcrEngine));
+            var document = await Task.Run(() => Services.RecognizeTextAsync(image));
             if (IsDisposed || !TranslationVisible || request != _translationRequest) return;
             _translationInput = document.Text; _translationBlocks = TranslationOverlay.GetBlocks(document);
             _translationSnapshot = new Bitmap(image);

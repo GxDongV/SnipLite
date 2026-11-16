@@ -33,10 +33,6 @@ internal sealed class TrayContext : ApplicationContext
         if (captureOnStart) Once(() => StartCapture(CaptureMode.Snip));
         if (openPreferencesTab >= 0) Once(() => ShowPreferences(openPreferencesTab));
         if (openMenu) Once(() => _tray.ContextMenuStrip?.Show(200, 200));
-        if (_settings.KeepResponsive) _ = Task.Run(() =>
-        {
-            try { Windows.Media.Ocr.OcrEngine.TryCreateFromUserProfileLanguages(); } catch { }
-        });
         AppLog.Write($"SnipLite 已启动 version={AppInfo.Version} exe={Application.ExecutablePath}");
     }
 

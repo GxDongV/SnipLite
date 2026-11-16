@@ -287,7 +287,6 @@
   "无法连接翻译服务，请检查网络后重试。": "ui.0c68827cae26",
   "无法连接微软翻译服务，请检查网络。": "ui.9fba5d5ec310",
   "西班牙语": "ui.6c872d27f835",
-  "系统识别语言": "ui.b98695fa6bf7",
   "下载安装包": "ui.6ee566632bc4",
   "下载失败，请重试": "ui.45f5dfb2c926",
   "显示": "ui.4e1449e7d5e5",
@@ -398,7 +397,6 @@
   "MyMemory 请求失败（HTTP {0}）。": "ui.eceef673a63e",
   "MyMemory 请求受限，请稍后重试或切换服务。": "ui.0e826a898819",
   "MyMemory 暂时无法完成翻译，请稍后重试或切换服务。": "ui.7ab52b94f0e8",
-  "OCR 引擎不可用，请在 Windows 语言设置中安装对应的识别语言包。": "ui.fccd4a085a2e",
   "PNG 图片|*.png|JPEG 图片|*.jpg": "ui.fcdc23e56322",
   "SnipLite {0} | {1} 截图 | {2} 贴图": "ui.3c19968ace8a",
   "SnipLite 出错，详情见 %TEMP%\\SnipLite\\error.log": "ui.5eb5433ab745",
@@ -407,6 +405,5 @@
   "SnipLite 已有实例正在运行，本次没有启动新版。\n\n请先从托盘右键菜单退出旧版，再启动本文件。\n\n本文件版本：{0}\n本文件位置：{1}": "ui.ddc92e07ba6e",
   "SnipLite 已在运行": "ui.47d946118a99",
   "Translator 密钥": "ui.24ab6e8657e9",
-  "WAV 音效|*.wav": "ui.625cfaca0f11",
-  "Windows 系统识别": "ui.dee70307d1fe"
+  "WAV 音效|*.wav": "ui.625cfaca0f11"
 }

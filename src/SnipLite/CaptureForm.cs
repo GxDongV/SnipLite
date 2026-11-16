@@ -1445,7 +1445,7 @@ internal sealed partial class CaptureForm : Form
         {
             if (ocr)
             {
-                var document = await Task.Run(() => Services.RecognizeTextAsync(image, _settings.OcrLanguage, _settings.OcrEngine));
+                var document = await Task.Run(() => Services.RecognizeTextAsync(image));
                 if (IsDisposed || version != _recognitionVersion) return;
                 _recognitionBusy = false;
                 _ocrDocument = document;
@@ -1601,7 +1601,8 @@ internal sealed partial class CaptureForm : Form
         {
             Image = RenderComposite(crop),
             Bounds = new Rectangle(crop.X + _virtual.X, crop.Y + _virtual.Y, crop.Width, crop.Height),
-            Pin = _resultPin
+            Pin = _resultPin,
+            Action = CaptureAction.Copy
         });
     }
 

@@ -287,7 +287,6 @@
   "ui.0c68827cae26": "Es konnte keine Verbindung zum Übersetzungsdienst hergestellt werden. Bitte überprüfen Sie das Netzwerk und versuchen Sie es erneut.",
   "ui.9fba5d5ec310": "Es konnte keine Verbindung zum Microsoft Translator-Dienst hergestellt werden. Bitte überprüfen Sie das Netzwerk.",
   "ui.6c872d27f835": "Spanisch",
-  "ui.b98695fa6bf7": "Windows-OCR-Sprache",
   "ui.6ee566632bc4": "Laden Sie das Installationspaket herunter",
   "ui.45f5dfb2c926": "Download fehlgeschlagen, bitte versuchen Sie es erneut",
   "ui.4e1449e7d5e5": "Anzeige",
@@ -398,7 +397,6 @@
   "ui.eceef673a63e": "MyMemory-Anfrage fehlgeschlagen (HTTP {0}).",
   "ui.0e826a898819": "Die MyMemory-Anfrage ist begrenzt. Bitte versuchen Sie es später noch einmal oder wechseln Sie den Dienst.",
   "ui.7ab52b94f0e8": "MyMemory kann die Übersetzung vorübergehend nicht abschließen. Bitte versuchen Sie es später noch einmal oder wechseln Sie den Dienst.",
-  "ui.fccd4a085a2e": "Die OCR-Engine ist nicht verfügbar. Bitte installieren Sie das entsprechende Erkennungssprachenpaket in den Windows-Spracheinstellungen.",
   "ui.fcdc23e56322": "PNG-Bild|*.png|JPEG-Bild|*.jpg",
   "ui.3c19968ace8a": "SnipLite {0} | {1} Erfassung | {2} Anheften",
   "ui.5eb5433ab745": "SnipLite-Fehler, siehe %TEMP%\\SnipLite\\error.log für Details",
@@ -407,6 +405,5 @@
   "ui.ddc92e07ba6e": "Es läuft bereits eine Instanz von SnipLite und dieses Mal wird keine neue Version gestartet.\n\nBitte beenden Sie die alte Version über das Rechtsklick-Menü in der Taskleiste, bevor Sie diese Datei starten.\n\nVersion dieses Dokuments: {0}\nSpeicherort dieser Datei: {1}",
   "ui.47d946118a99": "SnipLite läuft bereits",
   "ui.24ab6e8657e9": "Übersetzerschlüssel",
-  "ui.625cfaca0f11": "WAV-Soundeffekt|*.wav",
-  "ui.dee70307d1fe": "Windows OCR"
+  "ui.625cfaca0f11": "WAV-Soundeffekt|*.wav"
 }

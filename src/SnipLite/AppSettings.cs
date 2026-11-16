@@ -7,6 +7,7 @@ internal sealed partial class AppSettings
     public string SaveDirectory { get; set; } =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "SnipLite");
 
+    // Legacy OCR settings stay so older config files round-trip; nothing reads them now.
     public string OcrLanguage { get; set; } = "zh-Hans";
     public OcrEngineKind OcrEngine { get; set; } = OcrEngineKind.SimdPaddle;
     public string TranslationSourceLanguage { get; set; } = "en";

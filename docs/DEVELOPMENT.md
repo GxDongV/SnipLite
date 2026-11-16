@@ -2,7 +2,7 @@
 
 ## 环境
 
-使用 Windows、.NET 10 SDK 和交互式桌面。UI 使用 WinForms，自绘部分采用 GDI+；窗口与控件检测使用 Win32、MSAA 和 UI Automation；OCR 默认通过 SimdPaddleOCR + PP-OCRv6 Small，Windows.Media.Ocr 备用，扫码通过 ZXing.Net。
+使用 Windows、.NET 10 SDK 和交互式桌面。UI 使用 WinForms，自绘部分采用 GDI+；窗口与控件检测使用 Win32、MSAA 和原生 UI Automation COM；OCR 通过 SimdPaddleOCR + PP-OCRv6 Small，扫码通过 ZXing.Net。保留文本方向模型，不再使用 Windows OCR、Windows SDK/WinRT 投影或 WPF 自动化客户端。
 
 版本统一在 `src/SnipLite/SnipLite.csproj` 的 `Version` 中维护，正式程序从程序集元数据读取版本。
 
@@ -48,6 +48,8 @@ README 面向使用者，介绍功能、下载和操作。语言资源、系统�
 ```
 
 发布脚本仅发布正式项目，产物位于 `artifacts/publish/win-x64/`。提交源码时排除 `bin/`、`obj/`、`artifacts/`、测试输出和本地参考材料；这些目录已配置在 `.gitignore` 中。
+
+实验构建可给 `publish.ps1` 或 `release.ps1` 传入 `-OutputRoot "$PWD/.local/package-size-optimization/candidate"`。每次发布会清空该根目录下对应的 `publish/win-x64/<形态>`，避免遗留旧依赖；不会清空输出根目录或其他形态。需要保留旧包时使用新的输出根目录。
 
 第三方许可证的来源与版本见 `licenses/README.md`。更新依赖或 .NET 运行时版本时，同步核对对应的声明。
 

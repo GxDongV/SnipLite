@@ -28,7 +28,7 @@ Einstellungen der aktuellen Anwendung auf Deutsch im hellen Design.
 
 - Automatische Erkennung von Fenstern und zugänglichen UI-Elementen; Auswahl per Klick oder Ziehen.
 - Rechtecke, Ellipsen, Pfeile, Stift, Textmarker, Pixelmosaik und Radierer. Text lässt sich erneut bearbeiten, verschieben und skalieren.
-- Lokale OCR mit SimdPaddleOCR + PP-OCRv6 Small für alltägliche chinesische und englische Texte; alternativ Windows OCR.
+- Lokale OCR mit SimdPaddleOCR + PP-OCRv6 Small für alltägliche chinesische und englische Texte.
 - Erkannten Text direkt auf dem Screenshot auswählen und kopieren. QR- und Barcode-Ergebnisse erscheinen unter der Werkzeugleiste.
 - Übersetzungen an der Position des Originaltexts einblenden. Dienst, Sprachrichtung und Originalansicht lassen sich wechseln.
 - Bilder im Vordergrund anheften, zoomen, Transparenz ändern, gruppieren, verkleinern, ausblenden und wiederherstellen; Mausklicks können durchgereicht werden.
@@ -84,4 +84,4 @@ Probleme und Vorschläge können über [GitHub Issues](https://github.com/GxDong
 
 [MIT](../LICENSE) · [Drittanbieter-Lizenzen](../THIRD_PARTY_NOTICES.md)
 
-OCR nutztnutzt SimdPaddleOCR / PP-OCRv6 Small und Windows OCR; die Code-Erkennung nutzt ZXing.Net. SnipLite ist nicht mit Snipaste verbunden.
+OCR nutzt SimdPaddleOCR / PP-OCRv6 Small; die Code-Erkennung nutzt ZXing.Net. SnipLite ist nicht mit Snipaste verbunden.

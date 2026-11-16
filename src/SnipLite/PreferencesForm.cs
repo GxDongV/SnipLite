@@ -455,7 +455,7 @@ internal sealed partial class PreferencesForm : Form
     {
         Row("程序", MakeStatic("SnipLite " + AppInfo.Version));
         var executable = MakeText(Application.ExecutablePath, FillWidth()); executable.ReadOnly = true; Row("程序文件", executable);
-        Row("运行环境", MakeStatic(".NET 10 · WinForms")); Row("识别引擎", MakeStatic("SimdPaddleOCR · Windows OCR · ZXing.Net"));
+        Row("运行环境", MakeStatic(".NET 10 · WinForms")); Row("识别引擎", MakeStatic("SimdPaddleOCR · ZXing.Net"));
         Row("GitHub 项目", MakeWebLink(AppInfo.RepositoryUrl));
         Row("问题反馈", MakeWebLink(AppInfo.IssuesUrl));
         var license = new LinkLabel { Text = "MIT License / Third-party notices", AutoSize = true,

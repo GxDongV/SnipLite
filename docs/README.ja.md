@@ -28,7 +28,7 @@ SnipLite は Windows 用のスクリーンショット・画像固定ツール�
 
 - ウィンドウやアクセシビリティ対応の UI 要素を自動検出。クリックでもドラッグでも範囲を選択できます。
 - 長方形、楕円、矢印、ペン、蛍光ペン、ピクセルモザイク、消しゴム。テキストは再編集、移動、サイズ変更が可能です。
-- SimdPaddleOCR + PP-OCRv6 Small によるローカル OCR。日常的な中国語・英語の読み取り向けで、Windows OCR にも切り替えられます。
+- SimdPaddleOCR + PP-OCRv6 Small によるローカル OCR。日常的な中国語・英語の読み取り向けです。
 - 認識した文字を画像上で選択してコピー。QR コードとバーコードの結果はツールバーの下に表示します。
 - 翻訳文を元の文字の位置に重ねて表示。サービス、言語、原文・訳文表示を切り替えられます。
 - 画像の最前面固定、ズーム、透明度、サムネイル、グループ、非表示・復元、マウス操作の透過。
@@ -84,4 +84,4 @@ OCR と QR 認識、画像処理は端末内で行います。翻訳時は抽出
 
 [MIT](../LICENSE) · [サードパーティのライセンス](../THIRD_PARTY_NOTICES.md)
 
-OCR は SimdPaddleOCR / PP-OCRv6 Small と Windows OCR、コード認識は ZXing.Net を使用します。SnipLite は Snipaste と提携していません。
+OCR は SimdPaddleOCR / PP-OCRv6 Small、コード認識は ZXing.Net を使用します。SnipLite は Snipaste と提携していません。

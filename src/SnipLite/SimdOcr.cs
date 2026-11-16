@@ -5,6 +5,7 @@ using Sdcb.SimdPaddleOCR.Models.ChineseV6Small;
 
 namespace SnipLite;
 
+// Windows is kept only so older settings files that stored it still deserialize; it is never used to pick an engine.
 internal enum OcrEngineKind { SimdPaddle, Windows }
 
 /// <summary>A single, lazily loaded offline model, shared by capture and pin OCR.</summary>

@@ -4,8 +4,9 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <!-- OCR runs through SimdPaddle; no Windows Runtime projections are used. -->
+    <IncludeWindowsSDKRefFrameworkReferences>false</IncludeWindowsSDKRefFrameworkReferences>
     <UseWindowsForms>true</UseWindowsForms>
-    <UseWPF>true</UseWPF>
     <Nullable>enable</Nullable>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -13,7 +14,7 @@
     <ApplicationIcon>../../logo/SnipLite.ico</ApplicationIcon>
     <AssemblyName>SnipLite</AssemblyName>
     <RootNamespace>SnipLite</RootNamespace>
-    <Version>0.3.13</Version>
+    <Version>0.3.14</Version>
     <Description>A Windows screenshot and pinning tool with local OCR and barcode recognition.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/GxDongV/SnipLite</RepositoryUrl>
@@ -30,6 +31,7 @@
     <PackageReference Include="Sdcb.SimdPaddleOCR" Version="2.0.0" />
     <PackageReference Include="Sdcb.SimdPaddleOCR.Models.ChineseV6Small" Version="1.0.0" />
     <PackageReference Include="ZXing.Net.Bindings.Windows.Compatibility" Version="0.16.17" />
+    <PackageReference Include="Interop.UIAutomationClient" Version="10.19041.0" />
     <EmbeddedResource Include="../../LICENSE" LogicalName="SnipLite.Notices.LICENSE" />
     <EmbeddedResource Include="../../THIRD_PARTY_NOTICES.md" LogicalName="SnipLite.Notices.THIRD_PARTY_NOTICES.md" />
     <EmbeddedResource Include="../../licenses/**/*.txt">

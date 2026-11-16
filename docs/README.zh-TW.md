@@ -50,7 +50,7 @@ Windows · 原生桌面界面 · 本地識別 · MIT
 
 這三種發布包均包含 .NET 運行時，無需另外安裝 .NET。單文件版首次啟動會釋放原生依賴。MIT 與第三方許可證可在「幫助 → 開源許可證」中離線查看。
 
-當前目標系統最低為 Windows 10 2004（Build 19041）。實際可用性還取決於所用 .NET 運行時與系統組件。增強 OCR 模型隨程序附帶，首次使用時加載，無需聯網下載；切換或回退到 Windows OCR 時需要系統安裝相應的識別語言包。
+當前目標系統最低為 Windows 10 2004（Build 19041）。實際可用性還取決於所用 .NET 運行時與系統組件。增強 OCR 模型隨程序附帶，首次使用時加載，無需聯網下載。
 
 ## 常用操作
 
@@ -77,7 +77,7 @@ Windows · 原生桌面界面 · 本地識別 · MIT
 
 點擊 **OCR** 後按鈕保持選中，上方完整工具欄保留，下方另加狀態行顯示識別進度和劃詞提示。拖動選字、Ctrl+A 全選、Ctrl+C 複製；狀態行「複製文字」複製選中文字，未選字時複製全部結果。再次點擊 OCR 或按 Esc 返回編輯，點擊其他標注工具可直接退出劃詞並切換工具。上方複製、保存和貼圖按鈕繼續按截圖功能執行。點擊 **QR** 查看單行結果，點擊「複製」複製完整內容，Esc 收起結果。識別模式中的快捷鍵優先作用於文字或識別結果。
 
-在「首選項 → 常規 → 識別引擎」可切換增強識別與 Windows OCR。「系統識別語言」只作用於 Windows 引擎。增強引擎發生異常時自動嘗試系統引擎；兩種方式均在本機處理圖片。OCR 劃詞允許在字符框邊緣附近按下滑鼠，拖動時吸附最近文字。
+識別在本機完成，使用本地增強引擎自動識別中英文，不提供引擎或識別語言選項；識別失敗時會提示，可再次嘗試。介面語言與識別語言相互獨立。OCR 劃詞允許在字符框邊緣附近按下滑鼠，拖動時吸附最近文字。
 
 點擊 **譯** 後按鈕保持選中，自動識別截圖並將譯文覆蓋在原文位置，完整標注工具欄繼續保留。下方只增加一行語言與翻譯狀態欄：首次預設英語 → 中文簡體，之後記住語言選擇；源語言可設為「自動檢測語言」，雙向箭頭交換語言方向，眼睛圖標切換原文/譯文。改變語言復用識別結果，調整選區後重新識別翻譯。
 
@@ -129,6 +129,6 @@ MyMemory 無需注冊或配置密鑰，使用時在翻譯欄手動選擇源語�
 
 ## 許可證與致謝
 
-項目源碼采用 [MIT License](../LICENSE)。二維碼與條碼解碼使用 [ZXing.Net](https://github.com/micjahn/ZXing.Net)，相關依賴聲明見 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)。增強 OCR 使用 [SimdPaddleOCR](https://github.com/sdcb/SimdPaddleOCR) 與 PP-OCRv6 Small；同時提供 Windows OCR 系統引擎。
+項目源碼采用 [MIT License](../LICENSE)。二維碼與條碼解碼使用 [ZXing.Net](https://github.com/micjahn/ZXing.Net)，相關依賴聲明見 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)。增強 OCR 使用 [SimdPaddleOCR](https://github.com/sdcb/SimdPaddleOCR) 與 PP-OCRv6 Small。
 
 SnipLite 與 Snipaste 沒有隸屬關系；Snipaste 名稱及其相關權利歸原權利人所有。

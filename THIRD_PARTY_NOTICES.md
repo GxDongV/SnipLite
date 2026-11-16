@@ -33,18 +33,21 @@ Maintained by Michael Jahn and contributors. ZXing.Net is a port of the ZXing ba
 
 ## .NET and Windows components
 
-SnipLite uses the .NET runtime, Windows desktop framework, Windows OCR, and Windows accessibility APIs. Windows system components are provided by the operating system and are not included in this source repository.
+SnipLite uses the .NET runtime, Windows desktop framework, and Windows accessibility APIs. Windows system components are provided by the operating system and are not included in this source repository.
 
 .NET license and third-party notices are included under `licenses/dotnet/`. A self-contained publish also includes .NET runtime binaries; their original licensing terms continue to apply.
 
 - .NET: https://github.com/dotnet/runtime
-- Windows desktop framework: https://github.com/dotnet/wpf and https://github.com/dotnet/winforms
+- Windows Forms: https://github.com/dotnet/winforms
 
-## Windows SDK .NET projections
+## UI Automation COM declarations
 
-`Microsoft.Windows.SDK.NET.dll` and `WinRT.Runtime.dll` are supplied by the implicit `Microsoft.Windows.SDK.NET.Ref` targeting pack (10.0.19041.57 in the verified build). The package is provided by Microsoft and references the [Windows SDK license](https://aka.ms/WinSDKLicenseURL). Windows Runtime interop is developed in [CsWinRT](https://github.com/microsoft/CsWinRT).
+`Interop.UIAutomationClient` 10.19041.0 provides the COM declarations used to query the operating system's UI Automation service for automatic capture targets. Copyright (c) 2019 Roman. Licensed under MIT. The UI Automation service itself is supplied by Windows.
 
-These components retain their original terms; SnipLite's MIT license applies to this project's original source code.
+- Upstream: https://github.com/FlaUI/UIAutomation-Interop
+- License: [MIT License](licenses/UIAutomation-Interop-MIT.txt)
+
+The application no longer uses Windows OCR, Windows SDK .NET projections, or the WPF automation client. The self-contained distribution retains the .NET and Windows Forms components required by its SDK dependency graph.
 
 ## Windows installer
 

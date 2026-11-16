@@ -1,7 +1,4 @@
 using System.Drawing.Imaging;
-using Windows.Globalization;
-using Windows.Graphics.Imaging;
-using Windows.Media.Ocr;
 using ZXing;
 using ZXing.Common;
 using ZXing.Windows.Compatibility;
@@ -10,72 +7,15 @@ namespace SnipLite;
 
 internal static partial class Services
 {
-    /// <summary>Local OCR; no screenshot is sent to a server.</summary>
-    public static async Task<string> OcrAsync(Bitmap bitmap, string language, OcrEngineKind engine = OcrEngineKind.SimdPaddle)
+    /// <summary>Local OCR; no screenshot is sent to a server. Failures are logged and rethrown so callers can tell them from an empty result.</summary>
+    public static async Task<OcrDocument> RecognizeTextAsync(Bitmap bitmap)
     {
-        try
-        {
-            return (await RecognizeTextAsync(bitmap, language, engine)).Text;
-        }
+        try { return await SimdOcr.RecognizeAsync(bitmap).ConfigureAwait(false); }
         catch (Exception ex)
         {
             AppLog.Write("文字识别失败", ex);
-            return string.Empty;
+            throw;
         }
-    }
-
-    public static async Task<OcrDocument> RecognizeTextAsync(Bitmap bitmap, string language, OcrEngineKind engine = OcrEngineKind.SimdPaddle)
-    {
-        if (engine != OcrEngineKind.Windows)
-        {
-            try { return await SimdOcr.RecognizeAsync(bitmap).ConfigureAwait(false); }
-            catch (Exception ex)
-            {
-                // A failed model load/inference must not take down capture or pinning.
-                // An empty successful result is left empty rather than running twice.
-                AppLog.Write("本地增强识别不可用，改用 Windows OCR", ex);
-            }
-        }
-        return await RecognizeWindowsTextAsync(bitmap, language).ConfigureAwait(false);
-    }
-
-    internal static async Task<OcrDocument> RecognizeWindowsTextAsync(Bitmap bitmap, string language)
-    {
-            using var memory = new MemoryStream();
-            bitmap.Save(memory, ImageFormat.Png);
-            memory.Position = 0;
-
-            using var stream = memory.AsRandomAccessStream();
-            var decoder = await BitmapDecoder.CreateAsync(stream);
-            // Windows OCR has a maximum image size. Keep the geometry mapped
-            // back to the original crop after downscaling large selections.
-            var scale = Math.Min(1d, (double)OcrEngine.MaxImageDimension / Math.Max(bitmap.Width, bitmap.Height));
-            var transform = new BitmapTransform
-            {
-                ScaledWidth = (uint)Math.Max(1, (int)Math.Round(bitmap.Width * scale)),
-                ScaledHeight = (uint)Math.Max(1, (int)Math.Round(bitmap.Height * scale))
-            };
-            using var software = await decoder.GetSoftwareBitmapAsync(
-                BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, transform,
-                ExifOrientationMode.IgnoreExifOrientation, ColorManagementMode.DoNotColorManage);
-
-            OcrEngine? engine = null;
-
-            if (!string.IsNullOrWhiteSpace(language))
-                engine = OcrEngine.TryCreateFromLanguage(new Language(language));
-
-            engine ??= OcrEngine.TryCreateFromUserProfileLanguages();
-
-            if (engine is null)
-                throw new InvalidOperationException(UiText.T("OCR 引擎不可用，请在 Windows 语言设置中安装对应的识别语言包。"));
-
-            var result = await engine.RecognizeAsync(software);
-            var sx = (float)bitmap.Width / software.PixelWidth;
-            var sy = (float)bitmap.Height / software.PixelHeight;
-            return new OcrDocument(result.Lines.SelectMany((line, index) => line.Words.Select(word =>
-                new RecognizedWord(word.Text, new RectangleF(
-                    (float)word.BoundingRect.X * sx, (float)word.BoundingRect.Y * sy,
-                    (float)word.BoundingRect.Width * sx, (float)word.BoundingRect.Height * sy), index))));
     }
 
     public static string? DecodeQr(Bitmap bitmap)

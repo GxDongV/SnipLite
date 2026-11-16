@@ -92,8 +92,7 @@ internal sealed partial class PreferencesForm
         Choice("显示语言", nameof(_s.DisplayLanguage),
             new[] { UiText.T("跟随系统") }.Concat(Localization.LanguageService.Languages.Select(l => l.NativeName)).ToArray(),
             new object[] { Localization.LanguageService.SystemDefault }.Concat(Localization.LanguageService.Languages.Select(l => (object)l.Code)).ToArray());
-        Choice("识别引擎", nameof(_s.OcrEngine), new[] { "本地增强（中英自动识别）", "Windows 系统识别" }, new object[] { OcrEngineKind.SimdPaddle, OcrEngineKind.Windows });
-        Choice("系统识别语言", nameof(_s.OcrLanguage), new[] { "简体中文", "English", "跟随系统" }, new object[] { "zh-Hans", "en-US", "" });
+        Row("识别引擎", MakeStatic("本地增强（中英自动识别）"));
         var translationServices = TranslationProviders.Choices.Select(choice => choice.Kind).ToArray();
         var translationLabels = TranslationProviders.Choices.Select(choice => choice.Label).ToArray();
         int CurrentServiceIndex() => Math.Max(0, Array.IndexOf(translationServices, _s.TranslationProvider));

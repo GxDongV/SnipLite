@@ -287,7 +287,6 @@
   "ui.0c68827cae26": "Impossible de se connecter au service de traduction, veuillez vérifier le réseau et réessayer.",
   "ui.9fba5d5ec310": "Impossible de se connecter au service Microsoft Translator, veuillez vérifier le réseau.",
   "ui.6c872d27f835": "Espagnol",
-  "ui.b98695fa6bf7": "Langue de Windows OCR",
   "ui.6ee566632bc4": "Téléchargez le package d'installation",
   "ui.45f5dfb2c926": "Le téléchargement a échoué, veuillez réessayer",
   "ui.4e1449e7d5e5": "Affichage",
@@ -398,7 +397,6 @@
   "ui.eceef673a63e": "La requête MyMemory a échoué (HTTP {0}).",
   "ui.0e826a898819": "La demande MyMemory est limitée, veuillez réessayer plus tard ou changer de service.",
   "ui.7ab52b94f0e8": "MyMemory est temporairement incapable de terminer la traduction. Veuillez réessayer plus tard ou changer de service.",
-  "ui.fccd4a085a2e": "Le moteur OCR n'est pas disponible. Veuillez installer le package de langue de reconnaissance correspondant dans les paramètres de langue de Windows.",
   "ui.fcdc23e56322": "Image PNG|*.png|Image JPEG|*.jpg",
   "ui.3c19968ace8a": "SnipLite {0} | {1} Capturer | {2} Épingler",
   "ui.5eb5433ab745": "Erreur SnipLite, voir %TEMP%\\SnipLite\\error.log pour plus de détails",
@@ -407,6 +405,5 @@
   "ui.ddc92e07ba6e": "Une instance de SnipLite est déjà en cours d'exécution et aucune nouvelle version n'est démarrée cette fois.\n\nVeuillez quitter l'ancienne version à partir du menu contextuel de la barre d'état système avant de lancer ce fichier.\n\nVersion de ce document : {0}\nEmplacement de ce fichier : {1}",
   "ui.47d946118a99": "SnipLite est déjà en cours d'exécution",
   "ui.24ab6e8657e9": "Clé du traducteur",
-  "ui.625cfaca0f11": "Effet sonore WAV|*.wav",
-  "ui.dee70307d1fe": "Windows OCR"
+  "ui.625cfaca0f11": "Effet sonore WAV|*.wav"
 }

@@ -95,34 +95,7 @@ internal sealed class DesktopTargets
     }
     private static Rectangle AutomationBounds(IntPtr handle, Point point, Rectangle window)
     {
-        try
-        {
-            var root = System.Windows.Automation.AutomationElement.FromHandle(handle);
-            if (root is null) return Rectangle.Empty;
-            var walker = System.Windows.Automation.TreeWalker.RawViewWalker;
-            var best = window;
-            var pending = new Stack<(System.Windows.Automation.AutomationElement Element, int Depth)>();
-            pending.Push((root, 0));
-            var budget = 800;
-            while (pending.Count > 0 && budget > 0)
-            {
-                var (current, depth) = pending.Pop();
-                if (depth >= 30) continue;
-                for (var child = walker.GetFirstChild(current); child is not null && budget-- > 0; child = walker.GetNextSibling(child))
-                {
-                    var r = child.Current.BoundingRectangle;
-                    // Virtual/container nodes may have no own rectangle while
-                    // their descendants expose the actual visible content.
-                    if (r.IsEmpty || r.Width <= 0 || r.Height <= 0) { pending.Push((child, depth + 1)); continue; }
-                    if (!r.Contains(point.X, point.Y)) continue;
-                    var candidate = Rectangle.Intersect(window, Rectangle.FromLTRB((int)r.Left, (int)r.Top, (int)Math.Ceiling(r.Right), (int)Math.Ceiling(r.Bottom)));
-                    if (candidate.Width > 1 && candidate.Height > 1 && (long)candidate.Width * candidate.Height <= (long)best.Width * best.Height) best = candidate;
-                    pending.Push((child, depth + 1));
-                }
-            }
-            return best;
-        }
-        catch { return Rectangle.Empty; }
+        return NativeUiAutomation.Bounds(handle, point, window);
     }
     private static Rectangle NativeChildBounds(IntPtr root, Point point, Rectangle window, out IntPtr childHandle)
     {

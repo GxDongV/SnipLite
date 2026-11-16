@@ -1,10 +1,11 @@
-param([string]$IsccPath = $env:ISCC_PATH)
+param([string]$IsccPath = $env:ISCC_PATH, [string]$OutputRoot)
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 [xml]$project = Get-Content -LiteralPath (Join-Path $projectRoot 'src\SnipLite\SnipLite.csproj')
 $version = [string]$project.Project.PropertyGroup.Version
-$releaseDir = Join-Path $projectRoot "artifacts\release\$version"
+$buildRoot = if ($OutputRoot) { [IO.Path]::GetFullPath($OutputRoot) } else { Join-Path $projectRoot 'artifacts' }
+$releaseDir = Join-Path $buildRoot "release\$version"
 if (-not $IsccPath) {
     $compiler = Get-Command ISCC.exe -ErrorAction SilentlyContinue
     if ($compiler) { $IsccPath = $compiler.Source }
@@ -12,14 +13,14 @@ if (-not $IsccPath) {
 if (-not $IsccPath -or -not (Test-Path -LiteralPath $IsccPath)) { throw 'Install Inno Setup and provide -IsccPath or ISCC_PATH.' }
 New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
 
-& (Join-Path $PSScriptRoot 'publish.ps1') -SelfContained
-$portableDir = Join-Path $projectRoot 'artifacts\publish\win-x64\self-contained'
+& (Join-Path $PSScriptRoot 'publish.ps1') -SelfContained -OutputRoot $buildRoot
+$portableDir = Join-Path $buildRoot 'publish\win-x64\self-contained'
 $portableZip = Join-Path $releaseDir "SnipLite-$version-win-x64-portable.zip"
 Compress-Archive -Path (Join-Path $portableDir '*') -DestinationPath $portableZip -CompressionLevel Optimal -Force
 
-& (Join-Path $PSScriptRoot 'publish.ps1') -SingleFile
+& (Join-Path $PSScriptRoot 'publish.ps1') -SingleFile -OutputRoot $buildRoot
 $singleExe = Join-Path $releaseDir "SnipLite-$version-win-x64-single.exe"
-Copy-Item -LiteralPath (Join-Path $projectRoot 'artifacts\publish\win-x64\single-file\SnipLite.exe') -Destination $singleExe -Force
+Copy-Item -LiteralPath (Join-Path $buildRoot 'publish\win-x64\single-file\SnipLite.exe') -Destination $singleExe -Force
 
 & $IsccPath '/Qp' "/DAppVersion=$version" "/DProjectRoot=$projectRoot" "/DPublishDir=$portableDir" "/DReleaseDir=$releaseDir" (Join-Path $projectRoot 'packaging\windows\SnipLite.iss')
 if ($LASTEXITCODE -ne 0) { throw "Installer build failed with exit code $LASTEXITCODE." }

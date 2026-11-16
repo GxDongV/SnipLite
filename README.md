@@ -26,7 +26,7 @@ Preferences in English, rendered from the current application in light mode.
 
 ## Features
 
-- **Local OCR:** recognize everyday Chinese / English text offline and select words directly on the capture to copy them. A Windows OCR engine is also available in Preferences.
+- **Local OCR:** recognize everyday Chinese / English text offline and select words directly on the capture to copy them.
 - **QR codes and barcodes:** results appear below the toolbar, with a copy button.
 - **Screenshot translation:** overlay translated text on the original regions. Switch the provider and language pair, swap languages, retry, or toggle the original without leaving the capture.
 - **Editable annotations:** rectangles, ellipses, arrow styles, pen, translucent highlighter, pixel mosaic and eraser. Re-edit text, change its font and size, move and resize it, undo and redo.
@@ -77,8 +77,7 @@ New settings follow the Windows **display language**, not regional formatting. U
 
 ## Translation and privacy
 
-OCR, QR decoding and image processing run locally. Enhanced OCR models ship with the application. Windows OCR may require a recognition language pack installed in Windows.
-
+OCR, QR decoding and image processing run locally. Enhanced OCR models ship with the application.
 Translation sends only recognized text to the selected service; it does not upload the screenshot. Bing web translation is the default. Google and Bing web endpoints require no user API key but can change or be rate-limited. MyMemory also supports anonymous usage, with service quotas and an explicit source language. Microsoft Azure requires your own Translator key and, where applicable, region; credentials are encrypted for the current Windows user. Service availability and fees depend on the provider and account.
 
 ## Settings and data
@@ -97,4 +96,4 @@ Settings are saved immediately. Configure hotkeys, fonts, accent, capture behavi
 
 Report issues through [GitHub Issues](https://github.com/GxDongV/SnipLite/issues), including the app version, Windows version, display scaling and reproduction steps. Feedback on translations is welcome too.
 
-[MIT](LICENSE). Local OCR uses [SimdPaddleOCR](https://github.com/sdcb/SimdPaddleOCR) / PP-OCRv6 Small and Windows OCR. QR / barcode decoding uses [ZXing.Net](https://github.com/micjahn/ZXing.Net). See [third-party notices](THIRD_PARTY_NOTICES.md). SnipLite is not affiliated with Snipaste.
+[MIT](LICENSE). Local OCR uses [SimdPaddleOCR](https://github.com/sdcb/SimdPaddleOCR) / PP-OCRv6 Small. QR / barcode decoding uses [ZXing.Net](https://github.com/micjahn/ZXing.Net). See [third-party notices](THIRD_PARTY_NOTICES.md). SnipLite is not affiliated with Snipaste.

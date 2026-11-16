@@ -28,7 +28,7 @@ SnipLite는 Windows용 화면 캡처 및 이미지 고정 도구입니다. Snipa
 
 - 창과 접근성 UI 요소를 자동 감지합니다. 클릭 또는 드래그로 캡처 영역을 선택합니다.
 - 사각형, 타원, 화살표, 펜, 형광펜, 픽셀 모자이크, 지우개를 제공합니다. 텍스트를 다시 편집하고 이동하거나 크기를 조절할 수 있습니다.
-- SimdPaddleOCR + PP-OCRv6 Small을 이용한 로컬 OCR. 일상적인 중국어·영어 인식에 적합하며 Windows OCR로 전환할 수 있습니다.
+- SimdPaddleOCR + PP-OCRv6 Small을 이용한 로컬 OCR. 일상적인 중국어·영어 인식에 적합합니다.
 - 이미지 위에서 인식한 텍스트를 선택하고 복사합니다. QR 코드와 바코드 결과는 도구 모음 아래에 표시됩니다.
 - 원문 위치에 번역문을 덮어 표시합니다. 서비스, 언어, 원문·번역문 보기를 전환할 수 있습니다.
 - 이미지 고정, 확대·축소, 투명도, 썸네일, 그룹, 숨기기·복원, 마우스 클릭 통과를 지원합니다.
@@ -84,4 +84,4 @@ OCR, QR 인식, 이미지 처리는 기기에서 수행됩니다. 번역할 때 
 
 [MIT](../LICENSE) · [타사 라이선스](../THIRD_PARTY_NOTICES.md)
 
-OCR에는 SimdPaddleOCR / PP-OCRv6 Small과 Windows OCR을, 코드 인식에는 ZXing.Net을 사용합니다. SnipLite는 Snipaste와 제휴 관계가 없습니다.
+OCR에는 SimdPaddleOCR / PP-OCRv6 Small을, 코드 인식에는 ZXing.Net을 사용합니다. SnipLite는 Snipaste와 제휴 관계가 없습니다.

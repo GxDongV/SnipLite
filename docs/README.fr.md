@@ -28,7 +28,7 @@ Préférences de l’application actuelle en français, en mode clair.
 
 - Détection des fenêtres et des éléments d’interface accessibles ; sélection par clic ou glissement.
 - Rectangles, ellipses, flèches, stylo, surligneur, mosaïque et gomme. Le texte reste modifiable, déplaçable et redimensionnable.
-- OCR local avec SimdPaddleOCR + PP-OCRv6 Small pour un usage courant en chinois et en anglais, avec Windows OCR en option.
+- OCR local avec SimdPaddleOCR + PP-OCRv6 Small pour un usage courant en chinois et en anglais.
 - Sélection et copie du texte directement sur la capture. Les résultats QR et codes-barres apparaissent sous la barre d’outils.
 - Traduction superposée au texte original ; choix du service et des langues, inversion du sens et bascule original / traduction.
 - Images épinglées au premier plan, zoom, opacité, miniatures, groupes, masquage, restauration et clics traversants.
@@ -84,4 +84,4 @@ Signalez les problèmes ou suggestions dans [GitHub Issues](https://github.com/G
 
 [MIT](../LICENSE) · [Licences tierces](../THIRD_PARTY_NOTICES.md)
 
-L’OCR utilise SimdPaddleOCR / PP-OCRv6 Small et Windows OCR ; le décodage utilise ZXing.Net. SnipLite n’est pas affilié à Snipaste.
+L’OCR utilise SimdPaddleOCR / PP-OCRv6 Small ; le décodage utilise ZXing.Net. SnipLite n’est pas affilié à Snipaste.

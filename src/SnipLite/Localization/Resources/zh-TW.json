@@ -287,7 +287,6 @@
   "ui.0c68827cae26": "無法連線翻譯服務，請檢查網路後重試。",
   "ui.9fba5d5ec310": "無法連接微軟翻譯服務，請檢查網路。",
   "ui.6c872d27f835": "西班牙語",
-  "ui.b98695fa6bf7": "系統辨識語言",
   "ui.6ee566632bc4": "下載安裝包",
   "ui.45f5dfb2c926": "下載失敗，請重試",
   "ui.4e1449e7d5e5": "顯示",
@@ -398,7 +397,6 @@
   "ui.eceef673a63e": "MyMemory 請求失敗（HTTP {0}）。",
   "ui.0e826a898819": "MyMemory 請求受限，請稍後重試或切換服務。",
   "ui.7ab52b94f0e8": "MyMemory 暫時無法完成翻譯，請稍後重試或切換服務。",
-  "ui.fccd4a085a2e": "OCR 引擎不可用，請在 Windows 語言設定中安裝對應的識別語言套件。",
   "ui.fcdc23e56322": "PNG 圖片|*.png|JPEG 圖片|*.jpg",
   "ui.3c19968ace8a": "SnipLite {0} | {1} 截圖 | {2} 貼圖",
   "ui.5eb5433ab745": "SnipLite 出錯，詳情請見 %TEMP%\\SnipLite\\error.log",
@@ -407,6 +405,5 @@
   "ui.ddc92e07ba6e": "SnipLite 已有實例正在運行，本次沒有啟動新版。\n\n請先從托盤右鍵選單退出舊版，再啟動本文件。\n\n本文件版本：{0}\n本文件位置：{1}",
   "ui.47d946118a99": "SnipLite 已在運行",
   "ui.24ab6e8657e9": "Translator 密鑰",
-  "ui.625cfaca0f11": "WAV 音效|*.wav",
-  "ui.dee70307d1fe": "Windows 系統識別"
+  "ui.625cfaca0f11": "WAV 音效|*.wav"
 }
