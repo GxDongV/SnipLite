@@ -2,6 +2,8 @@
 
 日期：2026-11-17。分支：`codex/package-size-runtime-audit`。本轮按照 `PACKAGE_SIZE_TARGET.zh-CN.md` 补充本机验收，并按用户确认生成离线验收包。干净 Windows 10/11 环境暂不可用，相关检查转到离线包执行，不标记为已完成。
 
+后续已针对资源生命周期继续修复，并生成独立候选及更新的离线套件，见 [RESOURCE_LIFETIME_RESULTS.zh-CN.md](RESOURCE_LIFETIME_RESULTS.zh-CN.md)。本文保留前轮测量件和结果，启动/安装数据不冒充后续代码变更后的重新测量。
+
 ## 1. 修复覆盖安装后体积不下降
 
 实际升级测试发现：Inno Setup 会覆盖新文件，但旧版本独有的 DLL 仍留在安装目录。由正式 v0.3.14 文件集升级时，两个设计器实现仍占用约 5.83 MiB；由 v0.3.13 升级还会遗留 WPF 和 SDK/WinRT 文件。

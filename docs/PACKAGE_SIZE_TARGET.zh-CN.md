@@ -2,6 +2,8 @@
 
 状态：主要瘦身实施、重复构建、本机安装升级及启动测量已完成；完整验收尚未完成。用户确认暂时没有干净 Windows 测试机，先完成本机验收并生成离线套件。最新结果、升级残留修复、套件用法和待办见 [PACKAGE_ACCEPTANCE_RESULTS.zh-CN.md](PACKAGE_ACCEPTANCE_RESULTS.zh-CN.md)。第 3、5、6 章的推算保留为历史预测，不作为实测。
 
+资源复查：已修复截图/贴图直接销毁漏清理，以及关闭贴图后菜单主题订阅持有窗体的问题；300 轮隐藏窗体生命周期检查通过，没有显示截图或贴图。该检查不替代尚未完成的可视/长期压力验收，详见 [RESOURCE_LIFETIME_RESULTS.zh-CN.md](RESOURCE_LIFETIME_RESULTS.zh-CN.md)。
+
 后续进度（2026-11-17）：在正式 v0.3.14 基础上继续完成设计器审计和 ZIP 压缩优化，本地候选单文件 / 安装版 / ZIP 分别为 76.95 / 60.14 / 71.12 MiB，便携目录 138.33 MiB。完整结果见 [RUNTIME_SIZE_RESULTS.zh-CN.md](RUNTIME_SIZE_RESULTS.zh-CN.md)；本文件原有回填表保持上一轮发布口径。
 
 | 项目 | 内容 |
@@ -430,4 +432,4 @@ WinForms 主程序集和 `System.*` 基础库未出现在已看到的列表里�
 - 修复覆盖安装遗留旧版依赖的问题，v0.3.13 和 v0.3.14 升级清理均已验证；新包重新构建两次并核对内容。
 - 用户确认暂时没有干净 Windows 测试机；已生成无需 SDK、无需联网的离线验收包，完整解压哈希和 Windows PowerShell 5 仅校验模式通过。
 - 可视压力测试造成桌面闪烁，已按用户反馈停止并恢复原程序/配置。300 轮未完成，不能标记通过；真实应用逐点对照、多屏混合 DPI、长期资源及干净系统验证转为待办。
-- 当前产物位于 `.local/package-acceptance/final/`，尚未推送或发布。最新范围和离线包校验码见 [PACKAGE_ACCEPTANCE_RESULTS.zh-CN.md](PACKAGE_ACCEPTANCE_RESULTS.zh-CN.md)。
+- 前轮体积/安装验收产物位于 `.local/package-acceptance/final/`；本轮资源修复候选位于 `.local/lifetime-audit/final/`。均未推送或发布，最新范围和校验码分别见 [安装与体积验收](PACKAGE_ACCEPTANCE_RESULTS.zh-CN.md) 和 [资源生命周期复查](RESOURCE_LIFETIME_RESULTS.zh-CN.md)。
