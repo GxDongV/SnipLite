@@ -2,6 +2,8 @@
 
 日期：2026-11-17。对应规划的阶段 F，工作分支 `codex/package-size-runtime-audit`。基线为正式 v0.3.14（`e638d0710637a8bd6478ffccbbbf75611d4b8c49`）。本轮为本地候选，未发布，程序版本暂保留 0.3.14；不要与 GitHub 上的正式 v0.3.14 文件混用。
 
+后续已补本机安装/升级/卸载、正式入口启动和内存、安装压缩参数测量，并修复升级残留 DLL。最新产物和仍待执行的离线验收见 [PACKAGE_ACCEPTANCE_RESULTS.zh-CN.md](PACKAGE_ACCEPTANCE_RESULTS.zh-CN.md)。本文保留第一轮体积与校验码，不能用来校验后续重新构建的文件。
+
 ## 1. 实际体积
 
 单位 MiB，1 MiB = 1,048,576 字节。下表来自重新生成的文件，不是用 DLL 大小推算。

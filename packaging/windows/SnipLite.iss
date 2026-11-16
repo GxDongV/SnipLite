@@ -36,6 +36,9 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 [Files]
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+[InstallDelete]
+#include "ObsoleteRuntimeFiles.iss"
+
 [Icons]
 Name: "{group}\SnipLite"; Filename: "{app}\SnipLite.exe"
 Name: "{group}\Uninstall SnipLite"; Filename: "{uninstallexe}"

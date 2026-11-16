@@ -343,3 +343,5 @@ flowchart TD
 阶段 1 和阶段 2 已在本地实现、构建并重复打包。以上回填表为实际值；方案中的估算仍保留为实施前预测。完整字节数、哈希、功能验证、OCR 耗时及尚未完成的干净系统/真实应用验收见 [PACKAGE_SIZE_RESULTS.zh-CN.md](PACKAGE_SIZE_RESULTS.zh-CN.md)。用户已授权将本轮优化纳入 v0.3.14 提交、推送和发布，发布说明保留未完成验证的边界。
 
 2026-11-17 继续执行阶段 F：按运行时版本与文件哈希排除两个无用的 WinForms 设计器实现；便携 ZIP 使用实测有效的 SmallestSize 压缩。相对正式 v0.3.14，单文件由 78.75 降至 76.95 MiB，安装版由 61.61 降至 60.14 MiB，ZIP 由 74.55 降至 71.12 MiB，便携目录由 144.15 降至 138.33 MiB。已重复打包、完成包内容审计和自包含功能回归，OCR 模型及生产程序集不变；尚未发布。实现依据、回退方式、测量及验收边界见 [RUNTIME_SIZE_RESULTS.zh-CN.md](RUNTIME_SIZE_RESULTS.zh-CN.md)。诊断组件和未充分证明可移除的 VB 依赖继续保留，不扩大裁剪范围。
+
+后续验收已补本机隔离安装/升级/卸载、三种入口启动及内存、安装器压缩参数对照，并修复升级遗留旧 DLL。用户确认暂缓干净测试机验收，离线套件已生成。可视压力测试因闪烁停止，未计为通过；当前未完成项目及最终构建校验码见 [PACKAGE_ACCEPTANCE_RESULTS.zh-CN.md](PACKAGE_ACCEPTANCE_RESULTS.zh-CN.md)。
