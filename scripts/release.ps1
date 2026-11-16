@@ -16,7 +16,19 @@ New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
 & (Join-Path $PSScriptRoot 'publish.ps1') -SelfContained -OutputRoot $buildRoot
 $portableDir = Join-Path $buildRoot 'publish\win-x64\self-contained'
 $portableZip = Join-Path $releaseDir "SnipLite-$version-win-x64-portable.zip"
-Compress-Archive -Path (Join-Path $portableDir '*') -DestinationPath $portableZip -CompressionLevel Optimal -Force
+# .NET 6+ offers a denser standard ZIP without changing the extracted payload.
+# Older PowerShell runtimes retain their supported Optimal level.
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zipLevelName = if ([Enum]::GetNames([IO.Compression.CompressionLevel]) -contains 'SmallestSize') { 'SmallestSize' } else { 'Optimal' }
+$zipLevel = [Enum]::Parse([IO.Compression.CompressionLevel], $zipLevelName)
+$temporaryZip = Join-Path $releaseDir ('.portable-' + [Guid]::NewGuid().ToString('N') + '.zip.tmp')
+try {
+    [IO.Compression.ZipFile]::CreateFromDirectory($portableDir, $temporaryZip, $zipLevel, $false)
+    Move-Item -LiteralPath $temporaryZip -Destination $portableZip -Force
+} finally {
+    if (Test-Path -LiteralPath $temporaryZip) { Remove-Item -LiteralPath $temporaryZip -Force }
+}
+Write-Host "Portable ZIP compression: $zipLevelName"
 
 & (Join-Path $PSScriptRoot 'publish.ps1') -SingleFile -OutputRoot $buildRoot
 $singleExe = Join-Path $releaseDir "SnipLite-$version-win-x64-single.exe"

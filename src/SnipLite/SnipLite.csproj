@@ -39,4 +39,5 @@
     </EmbeddedResource>
   </ItemGroup>
 
+  <Import Project="../../packaging/windows/RuntimeSize.targets" />
 </Project>

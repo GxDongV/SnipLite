@@ -1,0 +1,60 @@
+<Project>
+  <PropertyGroup>
+    <!-- Opt out with -p:SnipLiteReduceDesignerPayload=false for a full SDK payload. -->
+    <SnipLiteReduceDesignerPayload Condition="'$(SnipLiteReduceDesignerPayload)' == ''">true</SnipLiteReduceDesignerPayload>
+  </PropertyGroup>
+
+  <!-- Publish-only: keep build output intact. Never remove runtime files after publishing.
+       These two design-time implementations are unused by SnipLite (no PropertyGrid,
+       design host or editor discovery). Compatibility/type-forwarding facades remain.
+       Review docs/RUNTIME_SIZE_RESULTS.zh-CN.md before approving any new hash/version. -->
+  <Target Name="SnipLiteAuditDesignerPayload"
+          BeforeTargets="_ComputeResolvedCopyLocalPublishAssets;_ComputeUseBuildDependencyFile"
+          DependsOnTargets="ResolveRuntimePackAssets"
+          Condition="'$(SelfContained)' == 'true' and '$(RuntimeIdentifier)' == 'win-x64' and '$(SnipLiteReduceDesignerPayload)' == 'true'">
+    <ItemGroup>
+      <_SnipLiteDesignerCandidate Include="@(RuntimePackAsset)"
+          Condition="'%(RuntimePackAsset.NuGetPackageId)' == 'Microsoft.WindowsDesktop.App.Runtime.win-x64' and ('%(RuntimePackAsset.Filename)%(RuntimePackAsset.Extension)' == 'System.Windows.Forms.Design.dll' or '%(RuntimePackAsset.Filename)%(RuntimePackAsset.Extension)' == 'System.Windows.Forms.Design.Editors.dll')">
+        <ExpectedHash Condition="'%(RuntimePackAsset.Filename)' == 'System.Windows.Forms.Design'">4DC904431A32C5368B00708C6162F56C937AC2CDD7FACFDEC1D169B66AE8277D</ExpectedHash>
+        <ExpectedHash Condition="'%(RuntimePackAsset.Filename)' == 'System.Windows.Forms.Design.Editors'">68CC0922BB12F17870F70FD559BD6E412DA672A06FB0232B97BC12F5468C8966</ExpectedHash>
+      </_SnipLiteDesignerCandidate>
+    </ItemGroup>
+    <GetFileHash Files="@(_SnipLiteDesignerCandidate)" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="_SnipLiteHashedDesigner" />
+    </GetFileHash>
+    <ItemGroup>
+      <_SnipLiteExcludedDesigner Include="@(_SnipLiteHashedDesigner)"
+          Condition="'%(_SnipLiteHashedDesigner.NuGetPackageVersion)' == '10.0.12' and '%(_SnipLiteHashedDesigner.FileHash)' == '%(_SnipLiteHashedDesigner.ExpectedHash)'" />
+      <RuntimePackAsset Remove="@(_SnipLiteExcludedDesigner)" />
+      <_SnipLiteRetainedDesigner Include="@(_SnipLiteHashedDesigner)" Exclude="@(_SnipLiteExcludedDesigner)" />
+    </ItemGroup>
+    <Message Importance="high" Condition="'@(_SnipLiteExcludedDesigner)' != ''"
+             Text="SnipLite audited design-time exclusions: @(_SnipLiteExcludedDesigner->'%(Filename)%(Extension)', ', ')" />
+    <Warning Condition="'@(_SnipLiteRetainedDesigner)' != ''"
+             Text="SnipLite retained unreviewed designer assets (version/hash changed): @(_SnipLiteRetainedDesigner->'%(Filename)%(Extension)', ', '). Re-audit before excluding them." />
+  </Target>
+
+  <!-- The SDK also merges build-copy assets into publish-copy assets. Remove the
+       same audited absolute paths there; otherwise the DLLs re-enter the folder. -->
+  <Target Name="SnipLiteFilterDesignerCopyAssets" AfterTargets="_ComputeResolvedCopyLocalPublishAssets"
+          Condition="'@(_SnipLiteExcludedDesigner)' != ''">
+    <ItemGroup>
+      <_ResolvedCopyLocalPublishAssets Remove="@(_SnipLiteExcludedDesigner)" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Build deps still describe the full runtime. Publish must regenerate them from
+       the filtered RuntimePackAsset list, before folder copying or bundle creation. -->
+  <Target Name="SnipLiteRegeneratePublishDependencies" AfterTargets="_ComputeUseBuildDependencyFile"
+          Condition="'@(_SnipLiteExcludedDesigner)' != ''">
+    <PropertyGroup>
+      <_UseBuildDependencyFile>false</_UseBuildDependencyFile>
+    </PropertyGroup>
+  </Target>
+  <Target Name="SnipLiteDesignerDependencyCache" BeforeTargets="_GeneratePublishDependencyFileInputCache">
+    <ItemGroup>
+      <_GeneratePublishDependencyFilePropertyInputsCacheToHash Include="SnipLiteDesignerPayload=$(SnipLiteReduceDesignerPayload)" />
+      <_GeneratePublishDependencyFilePropertyInputsCacheToHash Include="@(_SnipLiteExcludedDesigner->'%(Filename)%(Extension):%(FileHash)')" />
+    </ItemGroup>
+  </Target>
+</Project>
