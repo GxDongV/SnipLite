@@ -16,6 +16,8 @@ internal sealed class PinForm : Form
     private static int _group = 1;
     private readonly Bitmap _image;
     private readonly AppSettings _settings;
+    private Font? _interfaceFont;
+    private bool _resourcesReleased;
     private Point _location;
     private Size _windowSize;
     private float _scale = 1;
@@ -47,7 +49,7 @@ internal sealed class PinForm : Form
         _image = image; _settings = settings ?? AppSettings.Load(); _pinGroup = _group;
         FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; StartPosition = FormStartPosition.Manual;
         TopMost = true; DoubleBuffered = true; BackColor = Color.Black; KeyPreview = true; Text = UiText.T("SnipLite 贴图");
-        Font = _settings.CreateInterfaceFont(); _opacity = Math.Clamp(opacityPercent, 10, 100) / 100d; Opacity = _opacity;
+        Font = _interfaceFont = _settings.CreateInterfaceFont(); _opacity = Math.Clamp(opacityPercent, 10, 100) / 100d; Opacity = _opacity;
         var anchor = screenPoint ?? Win32.CursorPosition();
         _scale = Math.Min(1, _settings.PinMaxSize / (float)Math.Max(image.Width, image.Height));
         _windowSize = new Size(Math.Max(1, (int)(image.Width * _scale)), Math.Max(1, (int)(image.Height * _scale)));
@@ -73,9 +75,11 @@ internal sealed class PinForm : Form
         foreach (var pin in Open.ToArray())
         {
             pin.Text = UiText.T("SnipLite 贴图");
-            pin.Font = pin._settings.CreateInterfaceFont(); pin.UpdateShadow(); pin.Invalidate();
+            var previousFont = pin._interfaceFont;
+            pin.Font = pin._interfaceFont = pin._settings.CreateInterfaceFont();
+            previousFont?.Dispose(); pin.UpdateShadow(); pin.Invalidate();
             var previous = pin.ContextMenuStrip; pin.ContextMenuStrip = pin.BuildMenu();
-            if (previous is not null) SynchronizationContext.Current?.Post(_ => previous.Dispose(), null);
+            if (previous is not null) SnipMenu.DisposeAfterClose(previous);
         }
     }
     public static void CloseAll() { foreach (var pin in Open.ToArray()) pin.Close(); }
@@ -173,9 +177,25 @@ internal sealed class PinForm : Form
     }
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
+        ReleaseResources(); base.OnFormClosed(e);
+    }
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) ReleaseResources();
+        base.Dispose(disposing);
+    }
+    private void ReleaseResources()
+    {
+        if (_resourcesReleased) return;
+        _resourcesReleased = true;
         Open.Remove(this); _flashTimer.Dispose(); _zoomBadgeTimer.Dispose(); _shadow?.Close(); _shadow?.Dispose();
+        _shadow = null;
         if (_historyEntry is not null) _historyEntry.Location = _location;
-        _image.Dispose(); base.OnFormClosed(e);
+        var menu = ContextMenuStrip; ContextMenuStrip = null;
+        if (menu is not null) SnipMenu.DisposeAfterClose(menu);
+        Font = Control.DefaultFont;
+        _interfaceFont?.Dispose(); _interfaceFont = null;
+        _image.Dispose();
     }
     private void Flash() { _flashTicks = 6; _flashTimer.Start(); Invalidate(); }
     private void ApplyLayout()
@@ -351,7 +371,7 @@ internal sealed class PinForm : Form
     }
     private ContextMenuStrip BuildMenu()
     {
-        var menu = SnipMenu.Create(); menu.Font = _settings.CreateInterfaceFont();
+        var menu = SnipMenu.Create(_settings.CreateInterfaceFont());
         ToolStripMenuItem Item(string text, Action action, string key = "") => SnipMenu.Item(text, action, _settings.PinMenuShortcuts ? key : "");
         menu.Items.Add(Item("复制图像", Copy, "Ctrl+C")); menu.Items.Add(Item("另存为…", SaveAs, "Ctrl+S"));
         menu.Items.Add(Item("识别文字", () => _ = RecognizeText())); menu.Items.Add(Item("识别二维码", ScanQr));

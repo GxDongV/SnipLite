@@ -38,7 +38,7 @@ internal sealed class TrayContext : ApplicationContext
 
     private ContextMenuStrip BuildMenu()
     {
-        var menu = SnipMenu.Create(); menu.Font = _settings.CreateInterfaceFont();
+        var menu = SnipMenu.Create(_settings.CreateInterfaceFont());
         menu.Items.Add(SnipMenu.Item("截屏", () => StartCapture(CaptureMode.Snip), HotkeyDefinitions.Format(_settings.CaptureHotkey)));
         if (_settings.EnhancedTrayMenu)
         {

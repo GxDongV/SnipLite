@@ -91,6 +91,7 @@ internal sealed partial class CaptureForm : Form
     private bool _hasSelection;
     private bool _showMagnifier;
     private bool _finished;
+    private bool _resourcesReleased;
     private int _dragMode; // 0 = idle, 1 = new selection / drawing, 2 = move, 3+ = resize anchor
     private Rectangle _dragStartSelection;
     private Point _dragStartCursor;
@@ -160,7 +161,7 @@ internal sealed partial class CaptureForm : Form
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) Localization.LanguageService.Changed -= RefreshInterfaceLanguage;
+        if (disposing) ReleaseResources();
         base.Dispose(disposing);
     }
 
@@ -209,6 +210,18 @@ internal sealed partial class CaptureForm : Form
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
+        ReleaseResources();
+        base.OnFormClosed(e);
+
+        // the 4K screenshot and its buffers are gone; hand the pages back
+        if (!_settings.KeepResponsive) GC.Collect(2, GCCollectionMode.Aggressive, true, true);
+    }
+
+    private void ReleaseResources()
+    {
+        if (_resourcesReleased) return;
+        _resourcesReleased = true;
+        _finished = true;
         Localization.LanguageService.Changed -= RefreshInterfaceLanguage;
         _recognitionVersion++;
         CancelTranslation();
@@ -220,8 +233,7 @@ internal sealed partial class CaptureForm : Form
         var menus = _optionMenus.ToArray(); _optionMenus.Clear();
         // ToolStrip's modal filter is still unwinding during Closed / owner
         // closure. Release menus on the next UI turn, never inside Closed.
-        SynchronizationContext.Current?.Post(_ => { foreach (var menu in menus) menu.Dispose(); }, null);
-        base.OnFormClosed(e);
+        foreach (var menu in menus) SnipMenu.DisposeAfterClose(menu);
 
         _caretTimer?.Stop();
         _caretTimer?.Dispose();
@@ -234,9 +246,6 @@ internal sealed partial class CaptureForm : Form
         _badgeFont.Dispose();
         Cursor = Cursors.Cross;
         _textCursor?.Dispose(); _textCursor = null;
-
-        // the 4K screenshot and its buffers are gone; hand the pages back
-        if (!_settings.KeepResponsive) GC.Collect(2, GCCollectionMode.Aggressive, true, true);
     }
 
     // ---------------------------------------------------------------- paint

@@ -115,11 +115,13 @@ internal sealed class SnipMenuRenderer : ToolStripProfessionalRenderer
 
 internal static class SnipMenu
 {
-    public static ContextMenuStrip Create()
+    // The menu owns the supplied font, including the default font allocated here.
+    public static ContextMenuStrip Create(Font? font = null)
     {
+        var ownedFont = font ?? new Font("Microsoft YaHei UI", 9f);
         var menu = new ContextMenuStrip
         {
-            Font = new Font("Microsoft YaHei UI", 9f),
+            Font = ownedFont,
             BackColor = SnipMenuRenderer.Back,
             ForeColor = AppTheme.Current.Text,
             ShowImageMargin = false,
@@ -130,9 +132,20 @@ internal static class SnipMenu
         };
         void ApplyTheme() { if (!menu.IsDisposed) { menu.BackColor = SnipMenuRenderer.Back; menu.ForeColor = AppTheme.Current.Text; menu.Invalidate(true); } }
         AppTheme.Changed += ApplyTheme;
-        menu.Disposed += (_, _) => AppTheme.Changed -= ApplyTheme;
+        menu.Disposed += (_, _) => { AppTheme.Changed -= ApplyTheme; ownedFont.Dispose(); };
         menu.Opening += (_, _) => { ApplyTheme(); UiText.Apply(menu); };
         return menu;
+    }
+
+    public static void DisposeAfterClose(ContextMenuStrip menu)
+    {
+        if (menu.IsDisposed) return;
+        if (menu.Visible) menu.Close();
+        // ToolStrip's modal filter may still be unwinding. A WinForms UI
+        // context releases it on the next turn; non-UI contexts can do so now.
+        if (SynchronizationContext.Current is WindowsFormsSynchronizationContext context)
+            context.Post(_ => menu.Dispose(), null);
+        else menu.Dispose();
     }
 
     public static ToolStripMenuItem Item(string text, Action action, string shortcut = "", bool check = false)
