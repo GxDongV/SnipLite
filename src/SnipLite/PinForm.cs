@@ -18,6 +18,7 @@ internal sealed class PinForm : Form
     private readonly AppSettings _settings;
     private Font? _interfaceFont;
     private bool _resourcesReleased;
+    private CancellationTokenSource? _ocrCancellation;
     private Point _location;
     private Size _windowSize;
     private float _scale = 1;
@@ -188,6 +189,7 @@ internal sealed class PinForm : Form
     {
         if (_resourcesReleased) return;
         _resourcesReleased = true;
+        _ocrCancellation?.Cancel(); _ocrCancellation = null;
         Open.Remove(this); _flashTimer.Dispose(); _zoomBadgeTimer.Dispose(); _shadow?.Close(); _shadow?.Dispose();
         _shadow = null;
         if (_historyEntry is not null) _historyEntry.Location = _location;
@@ -355,12 +357,25 @@ internal sealed class PinForm : Form
     }
     private async Task RecognizeText()
     {
-        using var snapshot = new Bitmap(_image);
-        string text;
-        try { text = (await Task.Run(() => Services.RecognizeTextAsync(snapshot))).Text; }
-        catch (Exception ex) { Toast.Error(UiText.T("识别失败：") + ex.Message); return; }
-        if (string.IsNullOrWhiteSpace(text)) { Toast.Show(UiText.T("没有识别到文字")); return; }
-        try { Clipboard.SetText(text); Toast.Show(UiText.T("文字已复制")); } catch { Toast.Error(UiText.T("复制失败，请重试")); }
+        if (_resourcesReleased || _ocrCancellation is not null) return;
+        using var cancellation = new CancellationTokenSource();
+        _ocrCancellation = cancellation;
+        try
+        {
+            string text;
+            using (var snapshot = new Bitmap(_image))
+                text = (await Services.RecognizeTextAsync(snapshot, cancellation.Token)).Text;
+            if (_resourcesReleased || IsDisposed || cancellation.IsCancellationRequested) return;
+            if (string.IsNullOrWhiteSpace(text)) { Toast.Show(UiText.T("没有识别到文字")); return; }
+            try { Clipboard.SetText(text); Toast.Show(UiText.T("文字已复制")); }
+            catch { Toast.Error(UiText.T("复制失败，请重试")); }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            if (!_resourcesReleased && !IsDisposed) Toast.Error(UiText.T("识别失败：") + ex.Message);
+        }
+        finally { if (ReferenceEquals(_ocrCancellation, cancellation)) _ocrCancellation = null; }
     }
     private async void ScanQr()
     {

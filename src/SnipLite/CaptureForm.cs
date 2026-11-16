@@ -111,6 +111,7 @@ internal sealed partial class CaptureForm : Form
     private bool _ocrMode;
     private bool _recognitionBusy;
     private int _recognitionVersion;
+    private CancellationTokenSource? _recognitionCancellation;
     private int _ocrAnchor = -1;
     private int _ocrEnd = -1;
     private bool _selectingText;
@@ -224,6 +225,7 @@ internal sealed partial class CaptureForm : Form
         _finished = true;
         Localization.LanguageService.Changed -= RefreshInterfaceLanguage;
         _recognitionVersion++;
+        CancelRecognition();
         CancelTranslation();
         ClearTranslationImages();
         _targetTimer.Stop(); _targetTimer.Dispose();
@@ -1431,12 +1433,14 @@ internal sealed partial class CaptureForm : Form
 
     private async Task RecognizeSelectionAsync(bool ocr)
     {
-        if (!_hasSelection || _recognitionBusy || _ocrMode) return;
+        if (!_hasSelection || _recognitionBusy || _ocrMode || _finished) return;
         CommitText();
         ClearQrResult();
         var crop = Crop;
         if (crop.Width < 1 || crop.Height < 1) return;
         using var image = RenderComposite(crop);
+        using var cancellation = new CancellationTokenSource();
+        _recognitionCancellation = cancellation;
         var version = ++_recognitionVersion;
         _recognitionBusy = true;
         _ocrMode = ocr;
@@ -1454,7 +1458,7 @@ internal sealed partial class CaptureForm : Form
         {
             if (ocr)
             {
-                var document = await Task.Run(() => Services.RecognizeTextAsync(image));
+                var document = await Services.RecognizeTextAsync(image, cancellation.Token);
                 if (IsDisposed || version != _recognitionVersion) return;
                 _recognitionBusy = false;
                 _ocrDocument = document;
@@ -1465,11 +1469,12 @@ internal sealed partial class CaptureForm : Form
             }
             else
             {
-                var text = await Task.Run(() => Services.DecodeQr(image));
+                var text = await Task.Run(() => Services.DecodeQr(image), cancellation.Token);
                 if (IsDisposed || version != _recognitionVersion) return;
                 ShowInlineQr(text);
             }
         }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
         catch (Exception ex)
         {
             if (IsDisposed || version != _recognitionVersion) return;
@@ -1479,6 +1484,7 @@ internal sealed partial class CaptureForm : Form
         }
         finally
         {
+            if (ReferenceEquals(_recognitionCancellation, cancellation)) _recognitionCancellation = null;
             if (!IsDisposed && version == _recognitionVersion)
             {
                 UpdateCursor();
@@ -1490,6 +1496,7 @@ internal sealed partial class CaptureForm : Form
     private void ExitRecognition()
     {
         _recognitionVersion++;
+        CancelRecognition();
         _recognitionBusy = _ocrMode = _selectingText = false;
         Capture = false;
         _ocrDocument = null;
@@ -1500,6 +1507,12 @@ internal sealed partial class CaptureForm : Form
         _bar.Status = "";
         UpdateCursor();
         Invalidate();
+    }
+
+    private void CancelRecognition()
+    {
+        _recognitionCancellation?.Cancel();
+        _recognitionCancellation = null;
     }
 
     private void ShowInlineQr(string? text)

@@ -9,6 +9,7 @@ internal sealed partial class CaptureForm
     private Bitmap? _translationLayer;
     private Rectangle _translationCrop;
     private CancellationTokenSource? _translationCancellation;
+    private CancellationTokenSource? _translationOcrCancellation;
     private int _translationRequest;
     private ITranslationProvider _translationProvider;
     private readonly Dictionary<(string Text, string Source, string Target), TranslationResult> _translationCache = new();
@@ -70,17 +71,24 @@ internal sealed partial class CaptureForm
         var request = ++_translationRequest;
         Invalidate();
         // Translate the captured background. Annotations stay editable above the translation layer.
-        using var image = _screenshot.Clone(crop, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using var cancellation = new CancellationTokenSource();
+        _translationOcrCancellation = cancellation;
         try
         {
-            var document = await Task.Run(() => Services.RecognizeTextAsync(image));
-            if (IsDisposed || !TranslationVisible || request != _translationRequest) return;
+            OcrDocument document;
+            // Keep only the snapshot for rendering while the network request is pending.
+            using (var image = _screenshot.Clone(crop, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+            {
+                document = await Services.RecognizeTextAsync(image, cancellation.Token);
+                if (IsDisposed || !TranslationVisible || request != _translationRequest) return;
+                _translationSnapshot = new Bitmap(image);
+            }
             _translationInput = document.Text; _translationBlocks = TranslationOverlay.GetBlocks(document);
-            _translationSnapshot = new Bitmap(image);
             _translationPanel.SetOriginal(document.Text);
             if (string.IsNullOrWhiteSpace(document.Text)) _translationPanel.SetError(() => UiText.T("未识别到文字，请调整选区。"));
             else await TranslateRecognizedTextAsync();
         }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
         catch
         {
             if (!IsDisposed && TranslationVisible && request == _translationRequest)
@@ -88,7 +96,8 @@ internal sealed partial class CaptureForm
         }
         finally
         {
-            if (!IsDisposed) { UpdateCursor(); Invalidate(); }
+            if (ReferenceEquals(_translationOcrCancellation, cancellation)) _translationOcrCancellation = null;
+            if (!IsDisposed && !_finished) { UpdateCursor(); Invalidate(); }
         }
     }
 
@@ -183,6 +192,7 @@ internal sealed partial class CaptureForm
     {
         _translationRequest++;
         _translationCancellation?.Cancel(); _translationCancellation = null;
+        _translationOcrCancellation?.Cancel(); _translationOcrCancellation = null;
         _translationPanel?.CloseMenus();
     }
 

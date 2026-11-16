@@ -11,18 +11,19 @@ internal enum OcrEngineKind { SimdPaddle, Windows }
 /// <summary>A single, lazily loaded offline model, shared by capture and pin OCR.</summary>
 internal static class SimdOcr
 {
-    // Serializing requests bounds concurrent inference memory when several pins ask for OCR.
+    // Run one inference at a time; canceled waiters can leave without loading models.
     private static readonly SemaphoreSlim Gate = new(1, 1);
     private static PaddleOcrAll? _engine;
 
-    public static async Task<OcrDocument> RecognizeAsync(Bitmap source)
+    public static async Task<OcrDocument> RecognizeAsync(Bitmap source, CancellationToken cancellationToken = default)
     {
-        await Gate.WaitAsync().ConfigureAwait(false);
+        await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             // Keep both model initialization and inference off the UI thread, even on first use.
             return await Task.Run(async () =>
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 _engine ??= await PaddleOcrAll.LoadAsync(ChineseV6SmallModels.Default, new PaddleOcrOptions
                 {
                     LineWorkerCount = 2,
@@ -31,6 +32,7 @@ internal static class SimdOcr
                     Classifier = new() { Backend = OcrBackend.Cpu, MaxPooledSessions = 2 },
                     Recognizer = new() { Backend = OcrBackend.Cpu, MaxPooledSessions = 2 }
                 }).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
 
                 // Bound exceptionally large selections. Normal screenshots retain their pixels.
                 var scale = Math.Min(1d, Math.Min(4096d / Math.Max(source.Width, source.Height),
@@ -53,10 +55,14 @@ internal static class SimdOcr
                 }
                 finally { bitmap.UnlockBits(data); }
 
+                cancellationToken.ThrowIfCancellationRequested();
                 var result = _engine.Run(pixels, bitmap.Width, bitmap.Height, returnCtcAlignment: true,
                     sourceStride: stride, format: ImagePixelFormat.Bgra32);
+                // Native inference is synchronous. Let it finish safely, then
+                // discard canceled results without interrupting its resources.
+                cancellationToken.ThrowIfCancellationRequested();
                 return ToDocument(result, source.Size, bitmap.Size);
-            }).ConfigureAwait(false);
+            }, cancellationToken).ConfigureAwait(false);
         }
         finally { Gate.Release(); }
     }

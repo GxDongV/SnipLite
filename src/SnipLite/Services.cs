@@ -7,10 +7,11 @@ namespace SnipLite;
 
 internal static partial class Services
 {
-    /// <summary>Local OCR; no screenshot is sent to a server. Failures are logged and rethrown so callers can tell them from an empty result.</summary>
-    public static async Task<OcrDocument> RecognizeTextAsync(Bitmap bitmap)
+    /// <summary>Local OCR; failures are logged and rethrown, while user cancellation propagates without error logging.</summary>
+    public static async Task<OcrDocument> RecognizeTextAsync(Bitmap bitmap, CancellationToken cancellationToken = default)
     {
-        try { return await SimdOcr.RecognizeAsync(bitmap).ConfigureAwait(false); }
+        try { return await SimdOcr.RecognizeAsync(bitmap, cancellationToken).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             AppLog.Write("文字识别失败", ex);
