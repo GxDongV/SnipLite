@@ -68,7 +68,7 @@ internal sealed partial class PreferencesForm : Form
 
         Text = "SnipLite 首选项";
         Icon = AppIcon.Window;
-        FormBorderStyle = FormBorderStyle.FixedSingle;
+        FormBorderStyle = FormBorderStyle.Sizable;
         MaximizeBox = false;
         MinimizeBox = false;
         ShowInTaskbar = false;
@@ -163,6 +163,7 @@ internal sealed partial class PreferencesForm : Form
 
         var area = Screen.FromControl(this).WorkingArea;
         ClientSize = new Size(Math.Min(Px(WinW), area.Width - Px(32)), Math.Min(Px(WinH), area.Height - Px(64)));
+        MinimumSize = SizeFromClientSize(new Size(Math.Min(Px(760), ClientSize.Width), Math.Min(Px(520), ClientSize.Height)));
         PlaceChrome();
 
         _ready = true;
@@ -198,6 +199,12 @@ internal sealed partial class PreferencesForm : Form
         if (!_ready) return;
 
         PlaceChrome();
+        // Resize existing controls in place so focus, edits, and pending updates survive.
+        _page.SuspendLayout();
+        foreach (Control control in _page.Controls)
+            if (control is FluentSettingRow || control is Label { AutoSize: false })
+                control.Width = ContentWidth();
+        _page.ResumeLayout();
         _tabRects.Clear();
         Invalidate();
     }
@@ -497,7 +504,10 @@ internal sealed partial class PreferencesForm : Form
     // ------------------------------------------------------------- sections
 
     /// <summary>Width of the page's content column.</summary>
-    private int ContentWidth() => PageRect().Width - Px(PagePad * 2) - SystemInformation.VerticalScrollBarWidth;
+    // Keep the two-column layout readable in narrow windows; AutoScroll exposes
+    // the remaining content instead of squeezing fields and trailing buttons.
+    private int ContentWidth() => Math.Max(PageRect().Width, Px(WinW - SidebarW - 44))
+        - Px(PagePad * 2) - SystemInformation.VerticalScrollBarWidth;
 
     /// <summary>Width left for a field that starts in the control column.</summary>
     private int FillWidth() => ContentWidth() - Px(LabelW + ControlGap + 16);
@@ -570,7 +580,7 @@ internal sealed partial class PreferencesForm : Form
         Persist();
         ShowTab(_selected);
     }
-    private void Row(string label, params Control[] controls)
+    private FluentSettingRow Row(string label, params Control[] controls)
     {
         var height = Math.Max(Px(RowH), controls.Select(c => c.Height + Px(22)).DefaultIfEmpty(0).Max());
         var card = NewSettingRow(height);
@@ -589,9 +599,12 @@ internal sealed partial class PreferencesForm : Form
             if (control.Width > card.Width - x - Px(14)) control.Width = Math.Max(Px(40), card.Width - x - Px(14));
             if (string.IsNullOrEmpty(control.AccessibleName)) control.AccessibleName = label;
             card.Controls.Add(control);
+            if (controls.Length == 1 && original is TextBoxBase or LinkLabel { AutoSize: false })
+                control.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             x += control.Width + Px(ControlGap);
         }
         _y += height + Px(6);
+        return card;
     }
 
     private FluentSettingRow NewSettingRow(int height)
@@ -622,7 +635,15 @@ internal sealed partial class PreferencesForm : Form
         all[0] = fill;
         trailing.CopyTo(all, 1);
 
-        Row(label, all);
+        var row = Row(label, all);
+        Control RowControl(Control control)
+        {
+            while (control.Parent != row) control = control.Parent!;
+            return control;
+        }
+        RowControl(fill).Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+        foreach (var control in trailing)
+            RowControl(control).Anchor = AnchorStyles.Top | AnchorStyles.Right;
     }
 
     private void Check(string text, bool value, Action<bool> onChange)
@@ -642,6 +663,7 @@ internal sealed partial class PreferencesForm : Form
         box.CheckedChanged += (_, _) => onChange(box.Checked);
 
         card.Controls.Add(box);
+        box.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         _y += Px(CheckH + 6);
     }
 

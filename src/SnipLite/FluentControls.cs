@@ -190,7 +190,7 @@ internal sealed class FluentToggle : CheckBox
 
 internal sealed class FluentSettingRow : Panel
 {
-    public FluentSettingRow() { DoubleBuffered = true; BackColor = AppTheme.Current.Card; }
+    public FluentSettingRow() { DoubleBuffered = true; ResizeRedraw = true; BackColor = AppTheme.Current.Card; }
     protected override void OnPaintBackground(PaintEventArgs e)
     {
         var s = DeviceDpi / 96f; var p = AppTheme.Current;
