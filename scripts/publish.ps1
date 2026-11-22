@@ -30,7 +30,7 @@ New-Item -ItemType Directory -Force -Path $docsOutput | Out-Null
 foreach ($document in Get-ChildItem -LiteralPath (Join-Path $projectRoot 'docs') -Filter 'README.*.md') {
     Copy-Item -LiteralPath $document.FullName -Destination $docsOutput -Force
 }
-foreach ($name in @('LOCALIZATION.md', 'DEVELOPMENT.md', 'languages.json')) {
+foreach ($name in @('LOCALIZATION.md', 'DEVELOPMENT.md', 'PLUGIN_DEVELOPMENT.zh-CN.md', 'PLUGINS_AND_SCROLL_CAPTURE.zh-CN.md', 'languages.json')) {
     Copy-Item -LiteralPath (Join-Path $projectRoot ('docs/' + $name)) -Destination $docsOutput -Force
 }
 Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/images') -Destination $docsOutput -Recurse -Force

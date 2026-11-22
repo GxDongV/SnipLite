@@ -2,7 +2,7 @@ namespace SnipLite;
 
 internal sealed partial class PreferencesForm
 {
-    private readonly int[] _subPages = new int[8];
+    private readonly int[] _subPages = new int[9];
     private readonly HashSet<string> _sectionProperties = new();
     public event Action<bool>? HotkeyEditing;
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
@@ -156,6 +156,7 @@ internal sealed partial class PreferencesForm
         };
         Row("", openFolder, open, change);
     }
+
     private bool? ConfigureMicrosoftTranslator(bool requireKey = false)
     {
         MicrosoftTranslatorCredentials? current = null;

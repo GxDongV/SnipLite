@@ -9,6 +9,16 @@ namespace SnipLite;
 /// </summary>
 internal sealed class AnnotationBar
 {
+    internal static readonly (string Id, string Label)[] BuiltInButtons =
+    {
+        ("rect", "矩形（R）"), ("ellipse", "椭圆（E）"), ("arrow", "箭头（A）"),
+        ("pen", "铅笔（P）"), ("marker", "马克笔（H）"), ("mosaic", "马赛克（M）"),
+        ("text", "文字（T）"), ("eraser", "橡皮擦（X），仅擦除标注"), ("undo", "撤销（Ctrl+Z）"), ("redo", "重做（Ctrl+Y）"),
+        ("ocr", "文字识别"), ("translate", "截图翻译"), ("qr", "二维码识别"),
+        ("close", "取消"), ("pin", "贴图"), ("save", "保存"), ("copy", "复制")
+    };
+    public IReadOnlySet<string> HiddenButtons { get; set; } = new HashSet<string>();
+    public IReadOnlyList<(string Id, string Title, Image? Icon)> PluginButtons { get; set; } = Array.Empty<(string, string, Image?)>();
     /// <summary>Snipaste's palette: 11 columns x 2 rows, saturated then pastel.</summary>
     public static readonly Color[] Palette =
     {
@@ -46,7 +56,6 @@ internal sealed class AnnotationBar
     private const int Swatch = 17;
     private const int Group = 9;
 
-    private static Color BarBack => AppTheme.Current.Card;
     private static Color IconColor => AppTheme.Current.Text;
     private static Color Divider => AppTheme.Current.Border;
     private static Color SwatchBorder => AppTheme.Current.Border;
@@ -119,7 +128,7 @@ internal sealed class AnnotationBar
     public Rectangle OptionsBounds => _options;
     public Rectangle MessageBounds => _message;
 
-    public bool Visible => _items.Count > 0;
+    public bool Visible => _items.Count > 0 || _message.Height > 0;
 
     private int Px(int value) => (int)Math.Round(value * Scale);
 
@@ -162,42 +171,31 @@ internal sealed class AnnotationBar
 
         void Cell(string id)
         {
+            if (HiddenButtons.Contains(id)) return;
+            if (x + button + pad > screen.Width - Px(4)) { x = pad; y += button + gap; }
             Add(x, y, button, button, id);
             x += button + gap;
         }
 
-        Cell("rect");
-        Cell("ellipse");
-        Cell("arrow");
-        Cell("pen");
-        Cell("marker");
-        Cell("mosaic");
-        Cell("text");
-        Cell("eraser");
-
-        void Divider()
+        void AddGroup(params string[] ids)
         {
-            x += group - gap;
-            _dividers.Add(new Rectangle(x, y + pad, 1, button - pad * 2));
-            x += group;
+            if (!ids.Any(id => !HiddenButtons.Contains(id))) return;
+            if (_items.Count > 0 && x + group * 2 + button + pad <= screen.Width - Px(4))
+            {
+                x += group - gap;
+                _dividers.Add(new Rectangle(x, y + pad, 1, button - pad * 2));
+                x += group;
+            }
+            foreach (var id in ids) Cell(id);
         }
+        AddGroup("rect", "ellipse", "arrow", "pen", "marker", "mosaic", "text", "eraser");
+        AddGroup("undo", "redo");
+        AddGroup("ocr", "translate", "qr");
+        AddGroup(PluginButtons.Select(p => p.Id).ToArray());
+        AddGroup("close", "pin", "save", "copy");
 
-        Divider();
-        Cell("undo");
-        Cell("redo");
-        Divider();
-
-        Cell("ocr");
-        Cell("translate"); Cell("qr");
-        Divider();
-
-        Cell("close");
-        Cell("pin");
-        Cell("save");
-        Cell("copy");
-
-        var mainWidth = x - gap + pad;
-        var mainHeight = button + pad * 2;
+        var mainWidth = Math.Max(Px(240), _items.Select(i => i.Rect.Right + pad).DefaultIfEmpty(0).Max());
+        var mainHeight = _items.Count == 0 ? 0 : y + button + pad;
 
         _main = new Rectangle(0, 0, mainWidth, mainHeight);
 
@@ -374,10 +372,10 @@ internal sealed class AnnotationBar
 
     public void Render(Graphics g)
     {
-        if (_items.Count == 0) return;
+        if (_items.Count == 0 && _message.Height == 0) return;
         g.SmoothingMode = SmoothingMode.AntiAlias;
 
-        DrawBar(g, _main);
+        if (_main.Height > 0) DrawBar(g, _main);
 
         if (_options.Height > 0)
             DrawBar(g, _options);
@@ -393,6 +391,11 @@ internal sealed class AnnotationBar
         }
         foreach (var (rect, id) in _items)
         {
+            if (PluginButtons.Any(p => p.Id == id))
+            {
+                Plugins.PluginIcon.Draw(g, PluginButtons.First(p => p.Id == id).Icon, Rectangle.Inflate(rect, -Px(8), -Px(8)), IconColor);
+                continue;
+            }
             if (id is "resultcopy" or "ocrtextcopy")
             {
                 using var back = new SolidBrush(AppTheme.AdaptAccent(Accent));
@@ -503,12 +506,7 @@ internal sealed class AnnotationBar
 
     private void DrawBar(Graphics g, Rectangle rect)
     {
-        using var path = FluentDrawing.Rounded(new RectangleF(rect.X + .5f, rect.Y + .5f, rect.Width - 1, rect.Height - 1), Px(8));
-        using (var back = new SolidBrush(BarBack))
-            g.FillPath(back, path);
-
-        using var border = new Pen(Divider, 1f);
-        g.DrawPath(border, path);
+        FluentDrawing.Toolbar(g, rect, Scale);
     }
 
     // -------------------------------------------------------------- options

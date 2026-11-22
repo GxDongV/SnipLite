@@ -48,13 +48,14 @@ internal static class Program
             var colon = arg.IndexOf(':');
 
             if (colon > 0 && int.TryParse(arg[(colon + 1)..], out var index))
-                prefsTab = Math.Clamp(index, 0, 7);
+                prefsTab = Math.Clamp(index, 0, PreferencesForm.PluginsTab);
         }
 
         Application.Run(new TrayContext(
             args.Contains("--capture"),
             prefsTab,
-            args.Contains("--menu")));
+            args.Contains("--menu"),
+            args.Contains("--scroll-capture")));
     }
 
     internal static void Report(Exception? ex)

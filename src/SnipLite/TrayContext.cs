@@ -1,3 +1,6 @@
+using SnipLite.Plugins;
+using SnipLite.Plugin.Abstractions;
+
 namespace SnipLite;
 
 internal sealed class TrayContext : ApplicationContext
@@ -8,6 +11,10 @@ internal sealed class TrayContext : ApplicationContext
     private readonly ThemeMonitor _themeMonitor = new();
     private readonly Localization.LanguageMonitor _languageMonitor;
     private readonly CaptureHistory _history = new();
+    private readonly PluginManager _plugins;
+    private readonly PluginHostServices _pluginHost;
+    private PluginManagementForm? _pluginManagement;
+    private bool _exiting;
     private CaptureForm? _overlay;
     private PreferencesForm? _prefs;
     private bool _editingHotkey;
@@ -15,11 +22,21 @@ internal sealed class TrayContext : ApplicationContext
     private string _menuSignature = "";
     private uint? _lastPasteSequence;
 
-    public TrayContext(bool captureOnStart = false, int openPreferencesTab = -1, bool openMenu = false)
+    public TrayContext(bool captureOnStart = false, int openPreferencesTab = -1, bool openMenu = false, bool scrollCapture = false)
     {
         _settings = AppSettings.Load();
         Localization.LanguageService.Configure(_settings.DisplayLanguage);
         _tray = new NotifyIcon { Icon = TrayIcons.Create(_settings), Text = "SnipLite", Visible = true };
+        _pluginHost = new PluginHostServices(_settings, (image, pin) => HandleResult(new CaptureResult
+        {
+            Image = new Bitmap(image.Image), Bounds = image.SourceBounds ?? new Rectangle(Point.Empty, image.Image.Size),
+            Pin = pin, Action = pin ? CaptureAction.Pin : CaptureAction.Copy
+        }, forceCopy: !pin));
+        _plugins = new PluginManager(_pluginHost, () => !_exiting && _overlay is not { IsDisposed: false, Visible: true });
+        _pluginHost.Manager = _plugins;
+        _plugins.DiscoverBundled(BundledScrollPlugin.CacheRoot);
+        _plugins.Discover(PluginManager.UserDirectory);
+        _plugins.Changed += PluginsChanged;
         AppTheme.Changed += RefreshTheme;
         _tray.DoubleClick += (_, _) => StartCapture(CaptureMode.Snip);
         ApplySettings();
@@ -33,6 +50,7 @@ internal sealed class TrayContext : ApplicationContext
         if (captureOnStart) Once(() => StartCapture(CaptureMode.Snip));
         if (openPreferencesTab >= 0) Once(() => ShowPreferences(openPreferencesTab));
         if (openMenu) Once(() => _tray.ContextMenuStrip?.Show(200, 200));
+        if (scrollCapture) Once(() => _ = _plugins.ExecuteAsync(BundledScrollPlugin.Id + "/capture"));
         AppLog.Write($"SnipLite 已启动 version={AppInfo.Version} exe={Application.ExecutablePath}");
     }
 
@@ -40,6 +58,8 @@ internal sealed class TrayContext : ApplicationContext
     {
         var menu = SnipMenu.Create(); menu.Font = _settings.CreateInterfaceFont();
         menu.Items.Add(SnipMenu.Item("截屏", () => StartCapture(CaptureMode.Snip), HotkeyDefinitions.Format(_settings.CaptureHotkey)));
+        foreach (var command in _plugins.Commands)
+            menu.Items.Add(SnipMenu.Item(command.Title.Get(_pluginHost.Language), () => _ = _plugins.ExecuteAsync(command.Id), HotkeyDefinitions.Format(_plugins.Hotkey(command.Id)), pluginIcon: command.Icon, iconId: "plugin"));
         if (_settings.EnhancedTrayMenu)
         {
             menu.Items.Add(SnipMenu.Item("截屏并自动复制", () => StartCapture(CaptureMode.Snip, true), HotkeyDefinitions.Format(_settings.CopyCaptureHotkey)));
@@ -72,6 +92,7 @@ internal sealed class TrayContext : ApplicationContext
         menu.Items.Add(SnipMenu.Item("二维码识别", () => StartCapture(CaptureMode.Qr), HotkeyDefinitions.Format(_settings.QrHotkey)));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(SnipMenu.Item("首选项…", () => ShowPreferences(0)));
+        menu.Items.Add(SnipMenu.Item(UiText.T("管理插件…"), () => ShowPreferences(PreferencesForm.PluginsTab)));
         menu.Items.Add(SnipMenu.Item("帮助", () => ShowPreferences(7)));
         menu.Items.Add(SnipMenu.Item("重新启动", Restart));
         menu.Items.Add(SnipMenu.Item("退出", Exit));
@@ -82,7 +103,8 @@ internal sealed class TrayContext : ApplicationContext
     private void ShowPreferences(int tab)
     {
         if (_prefs is { IsDisposed: false }) { _prefs.Activate(); _prefs.SelectTab(tab); return; }
-        _prefs = new PreferencesForm(_settings, tab);
+        _prefs = new PreferencesForm(_settings, tab, _plugins);
+        _prefs.PluginManagementRequested += ShowPluginManagement;
         _prefs.Applied += ApplySettings;
         _prefs.HotkeyAvailable = _hotkeys.CanRegister;
         _prefs.HotkeyEditing += editing => { _editingHotkey = editing; _hotkeySignature = ""; ApplyHotkeys(); };
@@ -105,11 +127,12 @@ internal sealed class TrayContext : ApplicationContext
         }
         _history.Trim(_settings.HistoryImageLimit);
         PinForm.TrimHistory(_settings.HistoryImageLimit);
-        PinForm.ApplySettingsToAll(); ApplyHotkeys();
+        PinForm.ApplySettingsToAll(); _overlay?.Invalidate(); ApplyHotkeys();
     }
     private void ApplyHotkeys()
     {
-        var signature = $"{_settings.HotkeysEnabled}|{_editingHotkey}|" + string.Join(',', HotkeyDefinitions.Items.Select(item => typeof(AppSettings).GetProperty(item.Name)!.GetValue(_settings)));
+        var signature = $"{_settings.HotkeysEnabled}|{_editingHotkey}|" + string.Join(',', HotkeyDefinitions.Items.Select(item => typeof(AppSettings).GetProperty(item.Name)!.GetValue(_settings)))
+            + "|" + string.Join(',', _plugins.Commands.Select(c => $"{c.Id}:{_plugins.Hotkey(c.Id)}"));
         if (signature == _hotkeySignature) return;
         _hotkeySignature = signature; _hotkeys.UnregisterAll(); _settings.HotkeyErrors.Clear();
         if (!_settings.HotkeysEnabled || _editingHotkey) return;
@@ -134,6 +157,28 @@ internal sealed class TrayContext : ApplicationContext
             _settings.HotkeyErrors[name] = "已被其他程序占用";
             Toast.Error(Localization.LanguageService.Format("{0}快捷键 {1} 已被占用", UiText.T(label), HotkeyDefinitions.Format(binding)));
         }
+        foreach (var command in _plugins.Commands)
+        {
+            var binding = _plugins.Hotkey(command.Id);
+            if (binding != Keys.None && !_hotkeys.Register(binding, () => _ = _plugins.ExecuteAsync(command.Id)))
+                AppLog.Write("Plugin hotkey unavailable: " + command.Id);
+        }
+    }
+    private void PluginsChanged()
+    {
+        _menuSignature = _hotkeySignature = ""; ApplySettings();
+    }
+    private void ShowPluginManagement()
+    {
+        if (_pluginManagement is { IsDisposed: false }) { _pluginManagement.Activate(); return; }
+        _pluginManagement = new PluginManagementForm(_plugins, _pluginHost, (binding, commandId) =>
+        {
+            if (HotkeyDefinitions.Items.Any(item => (Keys)typeof(AppSettings).GetProperty(item.Name)!.GetValue(_settings)! == binding) ||
+                _plugins.Commands.Any(c => c.Id != commandId && _plugins.Hotkey(c.Id) == binding)) return false;
+            return _plugins.Hotkey(commandId) == binding || _hotkeys.CanRegister(binding);
+        });
+        _pluginManagement.FormClosed += (_, _) => _prefs?.RefreshPlugins();
+        _pluginManagement.Show();
     }
     private void CustomCapture()
     {
@@ -145,11 +190,24 @@ internal sealed class TrayContext : ApplicationContext
     }
     private void StartCapture(CaptureMode mode, bool forceCopy = false, Rectangle? preset = null)
     {
+        if (_plugins.IsRunning || _exiting) return;
         if (_overlay is { IsDisposed: false, Visible: true }) { _overlay.Activate(); return; }
         _overlay?.Dispose();
         try
         {
-            var overlay = new CaptureForm(SystemInformation.VirtualScreen, mode, _settings, preset); _overlay = overlay;
+            var overlay = new CaptureForm(SystemInformation.VirtualScreen, mode, _settings, preset)
+            {
+                PluginButtons = _plugins.Commands.Select(c => (c.Id, c.Title.Get(_pluginHost.Language), c.Icon)).ToArray()
+            }; _overlay = overlay;
+            overlay.PluginRequested += async (id, bounds) =>
+            {
+                // Remove the frozen overlay before the plugin reads the live target window.
+                await Task.Delay(180);
+                if (_exiting) return;
+                _pluginHost.PendingSelection = bounds;
+                try { await _plugins.ExecuteAsync(id); }
+                finally { _pluginHost.PendingSelection = null; }
+            };
             overlay.Done += result =>
             {
                 if (result is null || !result.KeepOpen) if (ReferenceEquals(_overlay, overlay)) _overlay = null;
@@ -232,8 +290,14 @@ internal sealed class TrayContext : ApplicationContext
         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Application.ExecutablePath) { Arguments = "--wait-for-instance", UseShellExecute = true });
         Exit();
     }
-    private void Exit()
+    private async void Exit()
     {
+        if (_exiting) return;
+        _exiting = true;
+        _plugins.Cancel();
+        await _plugins.WhenIdle;
+        _plugins.Changed -= PluginsChanged;
+        _plugins.Dispose(); _pluginManagement?.Close();
         AppTheme.Changed -= RefreshTheme;
         _themeMonitor.Dispose();
         _languageMonitor.Dispose();

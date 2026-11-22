@@ -29,7 +29,12 @@ internal sealed class SnipMenuRenderer : ToolStripProfessionalRenderer
             using var path = FluentDrawing.Rounded(new RectangleF(2, 1, e.Item.Width - 4, e.Item.Height - 2), 5 * (e.ToolStrip?.DeviceDpi ?? 96) / 96f);
             using var brush = new SolidBrush(Hover); g.FillPath(brush, path);
         }
-        if (e.Item is ToolStripMenuItem { Checked: false, Tag: string icon } && icon.StartsWith("fluent:", StringComparison.Ordinal))
+        if (e.Item is ToolStripMenuItem { Checked: false, Tag: Image image })
+        {
+            var size = 16 * (e.ToolStrip?.DeviceDpi ?? 96) / 96f;
+            Plugins.PluginIcon.Draw(g, image, new RectangleF(8, (e.Item.Height - size) / 2, size, size), AppTheme.Current.Text);
+        }
+        else if (e.Item is ToolStripMenuItem { Checked: false, Tag: string icon } && icon.StartsWith("fluent:", StringComparison.Ordinal))
         {
             var size = 16 * (e.ToolStrip?.DeviceDpi ?? 96) / 96f;
             FluentIcons.Draw(g, icon[7..], new RectangleF(8, (e.Item.Height - size) / 2, size, size), AppTheme.Current.Text);
@@ -135,14 +140,14 @@ internal static class SnipMenu
         return menu;
     }
 
-    public static ToolStripMenuItem Item(string text, Action action, string shortcut = "", bool check = false)
+    public static ToolStripMenuItem Item(string text, Action action, string shortcut = "", bool check = false, Image? pluginIcon = null, string? iconId = null)
     {
         var item = new ToolStripMenuItem(text)
         {
             CheckOnClick = false,
             Checked = check,
             TextAlign = ContentAlignment.MiddleLeft,
-            Tag = "fluent:" + FluentIcons.ForLabel(text),
+            Tag = (object?)pluginIcon ?? "fluent:" + (iconId ?? FluentIcons.ForLabel(text)),
             Padding = new Padding(0, 5, 0, 5)
         };
 

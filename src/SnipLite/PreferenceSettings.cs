@@ -13,6 +13,7 @@ internal sealed partial class AppSettings
     public bool AutoBackup { get; set; } = true;
     public bool KeepResponsive { get; set; } = true;
     public bool EnhancedTrayMenu { get; set; } = true;
+    public HashSet<string> HiddenToolbarButtons { get; set; } = new(StringComparer.Ordinal);
     public string LogLevel { get; set; } = "Normal";
     public string InterfaceFont { get; set; } = "Microsoft YaHei UI";
     public float InterfaceFontSize { get; set; } = 9;
@@ -111,6 +112,7 @@ internal sealed partial class AppSettings
     }
     private void NormalizePreferences()
     {
+        HiddenToolbarButtons = new(HiddenToolbarButtons ?? [], StringComparer.Ordinal);
         DisplayLanguage = Localization.LanguageService.NormalizePreference(DisplayLanguage);
         if (!Enum.IsDefined(OcrEngine)) OcrEngine = OcrEngineKind.SimdPaddle;
         TranslationSourceLanguage = TranslationLanguages.Normalize(TranslationSourceLanguage, allowAuto: true, "en");

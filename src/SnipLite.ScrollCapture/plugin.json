@@ -1,0 +1,11 @@
+{
+  "id": "sniplite.scroll-capture",
+  "name": "Scroll capture / 长截图",
+  "version": "0.1.6",
+  "apiVersion": 1,
+  "minHostVersion": "0.3.14",
+  "entryAssembly": "SnipLite.ScrollCapture.dll",
+  "entryType": "SnipLite.ScrollCapture.ScrollCapturePlugin",
+  "architecture": "any",
+  "icon": "assets/scroll-capture.png"
+}

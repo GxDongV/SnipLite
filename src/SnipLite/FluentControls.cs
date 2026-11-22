@@ -4,6 +4,14 @@ namespace SnipLite;
 
 internal static class FluentDrawing
 {
+    public static void Toolbar(Graphics graphics, RectangleF rect, float scale)
+    {
+        graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        using var path = Rounded(new RectangleF(rect.X + .5f, rect.Y + .5f, rect.Width - 1, rect.Height - 1), 8 * scale);
+        using var fill = new SolidBrush(AppTheme.Current.Card); graphics.FillPath(fill, path);
+        using var border = new Pen(AppTheme.Current.Border); graphics.DrawPath(border, path);
+    }
+
     public static GraphicsPath Rounded(RectangleF rect, float radius)
     {
         var path = new GraphicsPath();
@@ -198,5 +206,62 @@ internal sealed class FluentSettingRow : Panel
         using var path = FluentDrawing.Rounded(new RectangleF(.5f, .5f, Width - 1, Height - 1), 7 * s);
         using var fill = new SolidBrush(p.Card); e.Graphics.FillPath(fill, path);
         using var border = new Pen(p.Border); e.Graphics.DrawPath(border, path);
+    }
+}
+
+/// <summary>Native, keyboard-accessible buttons using the capture toolbar's shared surface and icons.</summary>
+internal sealed class FluentToolbar : FlowLayoutPanel
+{
+    public FluentToolbar()
+    {
+        DoubleBuffered = true; ResizeRedraw = true; AutoSize = true;
+        AutoSizeMode = AutoSizeMode.GrowAndShrink; WrapContents = true;
+    }
+}
+
+internal sealed class FluentToolbarButton : Button
+{
+    private bool _hover;
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    internal string IconId { get; set; } = "";
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    internal bool Selected { get; set; }
+    public FluentToolbarButton()
+    {
+        AutoSize = false; FlatStyle = FlatStyle.Flat; UseVisualStyleBackColor = false;
+        TextAlign = ContentAlignment.MiddleCenter;
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+    }
+    protected override void OnMouseEnter(EventArgs e) { _hover = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { _hover = false; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnEnabledChanged(EventArgs e) { base.OnEnabledChanged(e); Invalidate(); }
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var p = AppTheme.Current; var scale = DeviceDpi / 96f; var g = e.Graphics;
+        var background = Parent?.BackColor ?? p.Window;
+        g.Clear(background); g.SmoothingMode = SmoothingMode.AntiAlias;
+        if (Selected || _hover && Enabled)
+        {
+            using var path = FluentDrawing.Rounded(new RectangleF(2 * scale, 2 * scale, Width - 4 * scale, Height - 4 * scale), 5 * scale);
+            using var fill = new SolidBrush(Selected ? p.AccentSoft : p.Hover); g.FillPath(fill, path);
+        }
+        var color = !Enabled ? p.Disabled : Selected ? p.Accent : p.Text;
+        if (IconId.Length > 0)
+            FluentIcons.Draw(g, IconId, new RectangleF((Width - 20 * scale) / 2, (Height - 20 * scale) / 2, 20 * scale, 20 * scale), color);
+        else TextRenderer.DrawText(g, Text, Font, ClientRectangle, color,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(g, Rectangle.Inflate(ClientRectangle, -3, -3), color, background);
+    }
+}
+
+internal sealed class FluentToolbarDivider : Control
+{
+    public FluentToolbarDivider() { DoubleBuffered = true; TabStop = false; }
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.Clear(Parent?.BackColor ?? AppTheme.Current.Window);
+        var scale = DeviceDpi / 96f;
+        using var pen = new Pen(AppTheme.Current.Border);
+        e.Graphics.DrawLine(pen, Width / 2f, 5 * scale, Width / 2f, Height - 5 * scale);
     }
 }

@@ -40,13 +40,27 @@ internal static class FluentIcons
                 case "undo": Lines(new(8, 4), new(3, 9), new(8, 14)); Lines(new(3, 9), new(14, 9), new(18, 12), new(18, 17), new(15, 20), new(10, 20)); break;
                 case "redo": Lines(new(16, 4), new(21, 9), new(16, 14)); Lines(new(21, 9), new(10, 9), new(6, 12), new(6, 17), new(9, 20), new(14, 20)); break;
                 case "close": Line(6, 6, 18, 18); Line(18, 6, 6, 18); break;
+                case "minimize": Line(6, 12, 18, 12); break;
+                case "maximize": Box(6, 6, 12, 12, 1); break;
+                case "restore": Box(5, 8, 11, 11, 1); Lines(new(8, 5), new(19, 5), new(19, 16)); break;
                 case "pin": Lines(new(9, 3), new(19, 13), new(15, 14), new(11, 18), new(6, 13), new(10, 9), new(9, 3)); Line(8, 16, 3, 21); break;
                 case "save": Lines(new(4, 3), new(17, 3), new(21, 7), new(21, 21), new(3, 21), new(3, 4), new(4, 3)); Box(7, 3, 9, 6, 1); Box(7, 14, 10, 7, 1); break;
                 case "copy": Box(8, 8, 13, 13); Lines(new(16, 4), new(16, 3), new(3, 3), new(3, 16), new(4, 16)); break;
                 case "capture": Corners(); Line(9, 15, 15, 9); break;
+                case "zoom-in":
+                case "zoom-out":
+                    g.DrawEllipse(pen, 3, 3, 13, 13); Line(14, 14, 21, 21); Line(6, 9.5f, 13, 9.5f);
+                    if (id == "zoom-in") Line(9.5f, 6, 9.5f, 13); break;
+                case "fit-image": Corners(); Box(8, 6, 8, 12, 1); break;
+                case "fit-width":
+                    Line(3, 4, 3, 20); Line(21, 4, 21, 20); Line(5, 12, 19, 12);
+                    Lines(new(8, 9), new(5, 12), new(8, 15)); Lines(new(16, 9), new(19, 12), new(16, 15)); break;
+                case "crop":
+                    Lines(new(6, 2), new(6, 18), new(22, 18)); Lines(new(2, 6), new(18, 6), new(18, 22)); break;
                 case "settings":
                     Line(3, 6, 21, 6); Line(3, 12, 21, 12); Line(3, 18, 21, 18);
                     Box(7, 4, 3, 4, 1); Box(15, 10, 3, 4, 1); Box(6, 16, 3, 4, 1); break;
+                case "plugin": Box(6, 9, 12, 10); Line(9, 4, 9, 9); Line(15, 4, 15, 9); Line(12, 19, 12, 22); break;
                 case "palette": g.DrawEllipse(pen, 3, 3, 18, 18); g.DrawEllipse(pen, 7, 7, 2, 2); g.DrawEllipse(pen, 14, 7, 2, 2); g.DrawEllipse(pen, 7, 14, 2, 2); Line(15, 14, 18, 18); break;
                 case "output": Lines(new(3, 8), new(3, 5), new(10, 5), new(12, 8), new(21, 8), new(21, 20), new(3, 20), new(3, 8)); Line(10, 14, 17, 14); Lines(new(14, 11), new(17, 14), new(14, 17)); break;
                 case "keyboard": Box(2, 5, 20, 14); for(var y=9;y<=12;y+=3) for(var x=6;x<=18;x+=4) Line(x,y,x+.5f,y); Line(7,16,17,16); break;

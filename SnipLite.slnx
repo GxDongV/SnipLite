@@ -1,5 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/SnipLite/SnipLite.csproj" />
+    <Project Path="src/SnipLite.Plugin.Abstractions/SnipLite.Plugin.Abstractions.csproj" />
+    <Project Path="src/SnipLite.ScrollCapture/SnipLite.ScrollCapture.csproj" />
   </Folder>
 </Solution>

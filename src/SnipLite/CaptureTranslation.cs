@@ -168,7 +168,8 @@ internal sealed partial class CaptureForm
     private void LayoutTranslationPanel()
     {
         if (!TranslationVisible) return;
-        var bounds = new Rectangle(_bar.MainBounds.Left, _bar.Bounds.Bottom + (int)Math.Round(4 * Ui), _bar.MainBounds.Width, _translationPanel!.Height);
+        var toolbarBottom = _bar.Bounds.Bottom;
+        var bounds = new Rectangle(_bar.MainBounds.Left, toolbarBottom + (int)Math.Round(4 * Ui), _bar.MainBounds.Width, _translationPanel!.Height);
         if (_translationPanel.Bounds != bounds) _translationPanel.Bounds = bounds;
     }
 

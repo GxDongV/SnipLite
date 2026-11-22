@@ -26,6 +26,7 @@ Preferences in English, rendered from the current application in light mode.
 
 ## Features
 
+- **Scrolling screenshots:** press F1, select the content, and choose the scrolling screenshot icon. The bundled plugin scrolls and stitches the capture, then opens a preview for cropping, saving, copying, or pinning.
 - **Local OCR:** recognize everyday Chinese / English text offline and select words directly on the capture to copy them.
 - **QR codes and barcodes:** results appear below the toolbar, with a copy button.
 - **Screenshot translation:** overlay translated text on the original regions. Switch the provider and language pair, swap languages, retry, or toggle the original without leaving the capture.
@@ -45,6 +46,8 @@ Get a Windows x64 package from [Releases](https://github.com/GxDongV/SnipLite/re
 | `portable.zip` | Extract the entire archive, then run `SnipLite.exe` |
 
 All three include the .NET runtime. The single-file version extracts native dependencies when needed. The application runs in the system tray; right-click its icon for preferences and exit. The current project targets Windows 10 2004 / build 19041 or later; runtime and system component compatibility also applies.
+
+All three packages include the scrolling screenshot plugin, enabled by default. Manage it and install other plugins under **Preferences → Plugins**. [Plugin integration specification (Simplified Chinese)](docs/PLUGIN_DEVELOPMENT.zh-CN.md)
 
 ## Default controls
 
