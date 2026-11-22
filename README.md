@@ -47,7 +47,21 @@ Get a Windows x64 package from [Releases](https://github.com/GxDongV/SnipLite/re
 
 All three include the .NET runtime. The single-file version extracts native dependencies when needed. The application runs in the system tray; right-click its icon for preferences and exit. The current project targets Windows 10 2004 / build 19041 or later; runtime and system component compatibility also applies.
 
-All three packages include the scrolling screenshot plugin, enabled by default. Manage it and install other plugins under **Preferences → Plugins**. [Plugin integration specification (Simplified Chinese)](docs/PLUGIN_DEVELOPMENT.zh-CN.md)
+## Plugins
+
+SnipLite v0.3.16 bundles Scroll Capture 0.1.6 in all three packages and enables it by default.
+
+- **Install or update.** In **Preferences → Plugins**, choose **Import plugin…** for a downloaded `.snipplugin` file or **Download plugin…** for an HTTPS package URL. Enable newly installed plugins from the list. Restart SnipLite to apply an update.
+- **Manage.** Use the switch next to each plugin to enable or disable it. For an updated Scroll Capture installation, choose **Restore bundled version** to roll back on the next restart. Updates and restores keep your plugin settings and hotkeys.
+- **Browse in the app.** Preview builds with catalog support offer **Preferences → Plugins → Discover plugins** for browsing, installing and updating listed plugins.
+
+### Official plugin list
+
+| Category | Plugin | Version | Requires SnipLite | Download |
+| --- | --- | --- | --- | --- |
+| Capture | [Scroll Capture](https://github.com/GxDongV/SnipLite-Plugin-Catalog/tree/main/plugins/capture/scroll-capture) | 0.1.7 | 0.3.16 or later | [`.snipplugin`](https://github.com/GxDongV/SnipLite-Plugin-Catalog/releases/download/scroll-capture-v0.1.7/sniplite.scroll-capture-0.1.7.snipplugin) |
+
+[Official plugin catalog](https://github.com/GxDongV/SnipLite-Plugin-Catalog) · [Plugin integration specification (Simplified Chinese)](docs/PLUGIN_DEVELOPMENT.zh-CN.md)
 
 ## Default controls
 
