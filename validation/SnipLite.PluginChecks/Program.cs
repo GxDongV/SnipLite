@@ -1,0 +1,956 @@
+using System.Drawing.Imaging;
+using System.Text.Json;
+using SnipLite;
+using SnipLite.Plugins;
+using SnipLite.Plugin.Abstractions;
+using SnipLite.ScrollCapture;
+
+namespace SnipLiteChecks;
+
+internal static class Program
+{
+    private static int _checks;
+    private static void Check(bool value, string message)
+    {
+        if (!value) throw new InvalidOperationException(message);
+        _checks++;
+    }
+    [STAThread]
+    private static int Main(string[] args)
+    {
+        Application.SetHighDpiMode(HighDpiMode.PerMonitorV2); Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); AppTheme.Refresh();
+        if (args.Contains("--demo")) { Application.Run(new ScrollDemo()); return 0; }
+        try
+        {
+            Algorithms();
+            FixedEdgeMatching();
+            IconAssets();
+            Plugins().GetAwaiter().GetResult();
+            BundledPlugin();
+            InstallerChecks().GetAwaiter().GetResult();
+            CaptureLifecycle();
+            ScrollTargetRecovery();
+            ScrollUi();
+            PreviewUi();
+            PreferencesIntegration();
+            Console.WriteLine($"PASS: {_checks} plugin and scrolling-capture checks."); return 0;
+        }
+        catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
+    }
+
+    private static void IconAssets()
+    {
+        var directory = Path.Combine(Path.GetDirectoryName(ScrollPluginRoot())!, "icon-checks", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            Check(PluginIcon.Load(directory, "") is null, "legacy plugins need no icon asset");
+            using (var source = new Bitmap(48, 24))
+            {
+                using var g = Graphics.FromImage(source); g.Clear(Color.MediumPurple);
+                source.Save(Path.Combine(directory, "custom.png"), ImageFormat.Png);
+            }
+            using var icon = PluginIcon.Load(directory, "custom.png")!;
+            using (var exclusive = new FileStream(Path.Combine(directory, "custom.png"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                Check(icon.GetPixel(10, 10).ToArgb() == Color.MediumPurple.ToArgb(), "plugin PNG decoded independently of file lifetime");
+            using var rendered = new Bitmap(40, 40);
+            using (var graphics = Graphics.FromImage(rendered)) PluginIcon.Draw(graphics, icon, new Rectangle(0, 0, 40, 40), Color.Black);
+            Check(rendered.GetPixel(20, 20).ToArgb() == Color.MediumPurple.ToArgb() && rendered.GetPixel(20, 2).A == 0, "arbitrary plugin artwork retains color and aspect ratio");
+            foreach (var path in new[] { "../custom.png", "assets/../../custom.png", "C:/custom.png", "\\\\server\\custom.png", "custom.svg" })
+            {
+                try { PluginIcon.Load(directory, path); throw new Exception("Invalid icon path accepted: " + path); }
+                catch (InvalidDataException) { _checks++; }
+            }
+            File.WriteAllText(Path.Combine(directory, "broken.png"), "not an image");
+            try { using var broken = PluginIcon.Load(directory, "broken.png"); throw new Exception("Invalid PNG accepted."); }
+            catch (ArgumentException) { _checks++; }
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    private static void Algorithms()
+    {
+        using var source = new Bitmap(160, 700, PixelFormat.Format32bppArgb);
+        var random = new Random(1234);
+        for (var y = 0; y < source.Height; y++)
+        for (var x = 0; x < source.Width; x++) source.SetPixel(x, y, Color.FromArgb(random.Next(256), random.Next(256), random.Next(256)));
+        using var first = source.Clone(new Rectangle(0, 0, 160, 120), PixelFormat.Format32bppArgb);
+        using var second = source.Clone(new Rectangle(0, 37, 160, 120), PixelFormat.Format32bppArgb);
+        using var third = source.Clone(new Rectangle(0, 81, 160, 120), PixelFormat.Format32bppArgb);
+        using var far = source.Clone(new Rectangle(0, 350, 160, 120), PixelFormat.Format32bppArgb);
+        var a = new FrameSample(first); var b = new FrameSample(second); var c = new FrameSample(third);
+        Check(FrameMatcher.Match(a, b) == new FrameMatch(MatchKind.Forward, 37), "known forward offset");
+        Check(FrameMatcher.Match(b, c) == new FrameMatch(MatchKind.Forward, 44), "variable forward offset");
+        Check(FrameMatcher.Match(b, a).Kind == MatchKind.Reverse, "reverse scrolling rejected");
+        Check(FrameMatcher.Match(a, a).Kind == MatchKind.Unchanged, "stationary frame not appended");
+        Check(FrameMatcher.Match(a, new FrameSample(far)).Kind == MatchKind.Uncertain, "missing overlap rejected");
+        using (var textSource = new Bitmap(900, 3000))
+        {
+            using (var graphics = Graphics.FromImage(textSource))
+            {
+                graphics.Clear(Color.White);
+                using var font = new Font("Segoe UI", 16);
+                for (var row = 0; row < 60; row++)
+                    graphics.DrawString($"Row {row:000} — article content, variable value {row * row + 7919}", font, Brushes.Black, 15, row * 50 + 10);
+            }
+            using var textFirst = textSource.Clone(new Rectangle(0, 0, 900, 700), PixelFormat.Format32bppArgb);
+            foreach (var offset in new[] { 37, 80, 125, 150, 237, 350 })
+            {
+                using var textNext = textSource.Clone(new Rectangle(0, offset, 900, 700), PixelFormat.Format32bppArgb);
+                Check(FrameMatcher.Match(new(textFirst), new(textNext)) == new FrameMatch(MatchKind.Forward, offset), "text-only article offset " + offset);
+            }
+            foreach (var height in new[] { 181, 317, 533, 700, 880, 947, 1137 })
+            foreach (var offset in new[] { height / 9, height / 3, height / 2, height * 2 / 3 })
+            {
+                using var baseline = textSource.Clone(new Rectangle(0, 13, 900, height), PixelFormat.Format32bppArgb);
+                using var next = textSource.Clone(new Rectangle(0, 13 + offset, 900, height), PixelFormat.Format32bppArgb);
+                var match = FrameMatcher.Match(new(baseline), new(next));
+                Check(match == new FrameMatch(MatchKind.Forward, offset), $"text viewport height={height}, offset={offset}, actual={match}");
+            }
+        }
+        using var blank = new Bitmap(160, 120); using (var g = Graphics.FromImage(blank)) g.Clear(Color.White);
+        using var otherBlank = new Bitmap(160, 120); using (var g = Graphics.FromImage(otherBlank)) g.Clear(Color.LightGray);
+        Check(FrameMatcher.Match(new(blank), new(otherBlank)).Kind == MatchKind.Uncertain, "untextured content rejected");
+        using var stripes = new Bitmap(160, 240);
+        for (var y = 0; y < stripes.Height; y++)
+        for (var x = 0; x < stripes.Width; x++) stripes.SetPixel(x, y, y % 12 < 6 ? Color.White : Color.Black);
+        using var stripeA = stripes.Clone(new Rectangle(0, 0, 160, 120), PixelFormat.Format32bppArgb);
+        using var stripeB = stripes.Clone(new Rectangle(0, 3, 160, 120), PixelFormat.Format32bppArgb);
+        Check(FrameMatcher.Match(new(stripeA), new(stripeB)).Kind == MatchKind.Uncertain, "ambiguous repeated rows rejected");
+        using var resized = new Bitmap(170, 120);
+        Check(FrameMatcher.Match(a, new(resized)).Kind == MatchKind.Uncertain, "size change rejected");
+        using var cancellation = new CancellationTokenSource(); cancellation.Cancel();
+        try { FrameMatcher.Match(a, b, cancellation.Token); throw new Exception("Cancellation was ignored."); } catch (OperationCanceledException) { _checks++; }
+        string cache;
+        using (var store = new ScrollImageStore(first))
+        {
+            cache = store.DirectoryPath;
+            Check(store.Append(second, b, 37) && store.Append(third, c, 44), "append strips");
+            Check(store.Height == 201 && store.Count == 3, "height and strip count");
+            using (var result = store.Build()) AssertPixels(result, source, 201);
+            Check(store.Undo() && store.Height == 157, "undo last strip");
+            Check(FrameMatcher.Match(store.LastSample, c).Offset == 44, "undo restores alignment baseline");
+            Check(store.Append(third, c, 44), "resume after undo");
+            Check(!store.CanAppend(int.MaxValue) && !store.Append(third, c, 120), "invalid offsets and oversized output rejected");
+            Check(store.LastSample.Gray.Length == c.Gray.Length, "only current signature retained in memory");
+            Check(Directory.GetFiles(cache, "*.sample").Length == store.Count, "undo signatures cached on disk");
+        }
+        Check(!Directory.Exists(cache), "temporary cache cleaned");
+        using (var store = new ScrollImageStore(first))
+        {
+            for (var i = 1; i < ScrollImageStore.MaxSegments; i++) Check(store.Append(first, a, 1), "small strips within segment budget");
+            Check(!store.Append(first, a, 1), "segment budget enforced");
+        }
+        var area = new Rectangle(-1600, 0, 1600, 1000);
+        var region = new Rectangle(-1500, 200, 1200, 650);
+        var toolbar = ScrollCaptureForm.ToolbarBounds(region, new Size(850, 180), new[] { area });
+        Check(toolbar is Rectangle rect && area.Contains(rect) && !rect.IntersectsWith(region), "toolbar avoids selection on negative-coordinate monitor");
+        Check(ScrollCaptureForm.ToolbarBounds(area, new Size(850, 180), new[] { area }) is null, "full-screen selection without toolbar space rejected");
+    }
+
+    private static void FixedEdgeMatching()
+    {
+        const int height = 1576;
+        var random = new Random(116);
+        var document = new byte[(height * 3) * FrameSample.Columns]; random.NextBytes(document);
+        FrameSample Sample(int offset, int leftEdge, int rightEdge, bool corruptInterior = false)
+        {
+            var gray = new byte[height * FrameSample.Columns];
+            for (var y = 0; y < height; y++)
+            for (var x = 0; x < FrameSample.Columns; x++)
+            {
+                gray[y * FrameSample.Columns + x] = x < leftEdge || x >= FrameSample.Columns - rightEdge
+                    ? (byte)((y * 37 + x * 11) % 256)
+                    : corruptInterior && x >= 10 && x <= 36 ? (byte)((y * 43 + x * 13) % 256)
+                    : document[(y + offset) * FrameSample.Columns + x];
+            }
+            return new FrameSample(338, height, gray);
+        }
+        foreach (var (left, right) in new[] { (0, 6), (3, 3), (6, 0), (0, 0) })
+        foreach (var offset in new[] { 150, 450, 750 })
+        {
+            var a = Sample(0, left, right); var b = Sample(offset, left, right);
+            Check(FrameMatcher.Match(a, b) == new FrameMatch(MatchKind.Forward, offset), $"narrow long capture aligns with fixed edges: {left}/{right}, offset={offset}");
+            Check(FrameMatcher.Match(b, a).Kind == MatchKind.Reverse, "fixed edge matching still rejects reverse scrolling");
+            Check(FrameMatcher.Match(a, a).Kind == MatchKind.Unchanged, "stationary matching keeps full frame comparison");
+        }
+        Check(FrameMatcher.Match(Sample(0, 0, 6), Sample(2400, 0, 6)).Kind == MatchKind.Uncertain, "fixed scrollbar does not create a match when content has no overlap");
+        Check(FrameMatcher.Match(Sample(0, 0, 6), Sample(450, 0, 6, true)).Kind == MatchKind.Uncertain, "changed interior cannot be hidden by edge exclusion");
+        var blankA = new byte[height * FrameSample.Columns]; var blankB = new byte[blankA.Length];
+        for (var y = 0; y < height; y++)
+        for (var x = 0; x < FrameSample.Columns; x++)
+        {
+            blankA[y * FrameSample.Columns + x] = x < 42 ? (byte)255 : (byte)(y % 256);
+            blankB[y * FrameSample.Columns + x] = x < 42 ? (byte)255 : (byte)((y + 31) % 256);
+        }
+        Check(FrameMatcher.Match(new(338, height, blankA), new(338, height, blankB)).Kind == MatchKind.Uncertain, "moving scrollbar alone cannot prove article scrolling");
+        var repeatedA = new byte[height * FrameSample.Columns]; var repeatedB = new byte[repeatedA.Length];
+        for (var y = 0; y < height; y++)
+        for (var x = 0; x < FrameSample.Columns; x++)
+        {
+            repeatedA[y * FrameSample.Columns + x] = (byte)((y % 42 < 8 ? 20 : 240) + x % 5);
+            repeatedB[y * FrameSample.Columns + x] = (byte)(((y + 150) % 42 < 8 ? 20 : 240) + x % 5);
+        }
+        Check(FrameMatcher.Match(new(338, height, repeatedA), new(338, height, repeatedB)).Kind == MatchKind.Uncertain, "repeated rows remain ambiguous after fixed-edge adjustment");
+        foreach (var offset in new[] { 150, 450, 750 })
+        {
+            var baseline = Sample(0, 0, 6);
+            var next = Sample(offset, 0, 6);
+            for (var y = 0; y < height; y++)
+            for (var x = 0; x < 42; x++)
+                next.Gray[y * FrameSample.Columns + x] = (byte)Math.Min(255, next.Gray[y * FrameSample.Columns + x] + 6);
+            Check(FrameMatcher.Match(baseline, next) == new FrameMatch(MatchKind.Forward, offset), "unique repaint offset verified despite moderate residual: " + offset);
+        }
+        var noisyMissingOverlap = Sample(2400, 0, 6);
+        for (var i = 0; i < noisyMissingOverlap.Gray.Length; i++)
+            noisyMissingOverlap.Gray[i] = (byte)Math.Min(255, noisyMissingOverlap.Gray[i] + 6);
+        Check(FrameMatcher.Match(Sample(0, 0, 6), noisyMissingOverlap).Kind == MatchKind.Uncertain, "moderate repaint tolerance does not accept non-overlap");
+        for (var i = 0; i < repeatedB.Length; i++) repeatedB[i] = (byte)Math.Min(255, repeatedB[i] + 6);
+        Check(FrameMatcher.Match(new(338, height, repeatedA), new(338, height, repeatedB)).Kind == MatchKind.Uncertain, "moderate repaint tolerance does not accept ambiguous repetition");
+    }
+
+    private static void CaptureLifecycle()
+    {
+        var pace = new ScrollStepSize(800);
+        Check(pace.Notches == 1, "automatic scrolling calibrates with one notch");
+        pace.Observe(120);
+        Check(pace.Notches == 3, "calibrated scrolling advances close to half the viewport");
+        pace.Observe(360);
+        Check(pace.Notches == 3, "stable scroll pace retains overlap");
+        pace.Observe(600);
+        Check(pace.Notches == 2, "larger-than-expected scrolling reduces next step");
+        pace.Reset(); pace.Observe(10); pace.Observe(30); pace.Observe(50);
+        Check(pace.Notches == 6, "small system scroll distance has bounded acceleration");
+        pace.Reset(); Check(pace.Notches == 1, "resume recalibrates scroll distance");
+        var shortViewport = new ScrollStepSize(180); shortViewport.Observe(120);
+        Check(shortViewport.Notches == 1, "short viewport keeps small scroll steps");
+        var target = new FakeScrollTarget();
+        using (var controller = new AutoScrollController(target))
+        {
+            Check(controller.Start() && controller.Step(3) && target.Steps == 1 && target.LastNotches == 3, "automatic scroll sends calibrated distance without pointer state");
+            target.Available = false;
+            Check(!controller.Step() && target.Steps == 1, "covered target receives no wheel message");
+            target.Available = true; target.AcceptsWheel = false;
+            Check(!controller.Step(), "scroll dispatch failure reported");
+            target.AcceptsWheel = true;
+            controller.Dispose();
+            Check(!controller.Step() && target.Steps == 2, "disposed controller cannot send more input");
+            Check(controller.Start() && controller.Step(), "resume reuses original target");
+        }
+        for (var run = 0; run < 2; run++)
+        {
+            using var session = new ScrollCaptureForm(new FakeHost(), new Rectangle(100, 100, 64, 100), CancellationToken.None);
+            var completion = ScrollCapturePlugin.ObserveCompletion(session);
+            var image = new PluginImage(new Bitmap(64, 201));
+            typeof(ScrollCaptureForm).GetField("_result", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(session, image);
+            // Exercise the modeless FormClosed -> Dispose ordering without opening a desktop window.
+            typeof(Form).GetMethod("OnFormClosed", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                .Invoke(session, new object[] { new FormClosedEventArgs(CloseReason.UserClosing) });
+            session.Dispose();
+            using var result = completion.GetAwaiter().GetResult();
+            Check(ReferenceEquals(result, image) && result.Image.Height == 201, "completed image survives modeless session disposal, run " + run);
+            Check(session.TakeResult() is null, "completed image ownership transferred once");
+        }
+    }
+
+    private static void ScrollTargetRecovery()
+    {
+        var api = new FakeScrollWindows();
+        var region = new Rectangle(100, 100, 800, 600);
+        var target = new WindowScrollTarget(region, api);
+        Check(api.Point == new Point(500, 400), "scroll target uses selection content center, away from scrollbar");
+        using var controller = new AutoScrollController(target);
+        Check(controller.Start() && controller.Step(3) && api.SentTo == 11 && api.Notches == 3, "scroll dispatch targets selected original content");
+        api.Child = 12;
+        Check(controller.Step() && api.SentTo == 12, "recreated content child is rebound within original root");
+        api.HitRoot = 2;
+        var count = api.Messages;
+        Check(!controller.Step() && controller.CanRetry && api.Messages == count, "temporary covering window receives no scroll input");
+        api.HitRoot = 1;
+        Check(controller.Step() && controller.Failure.Length == 0, "uncovering original target recovers and clears stale failure");
+        api.Bounds = api.Bounds with { X = 1 };
+        Check(!controller.CheckTarget() && !controller.CanRetry && controller.Failure.Contains("moved"), "real content movement pauses immediately");
+        api.Bounds = new Rectangle(0, 0, 1200, 900); api.IsMinimized = true;
+        Check(!controller.CheckTarget() && !controller.CanRetry && controller.Failure.Contains("minimized"), "minimized target is not retried");
+        api.IsMinimized = false; api.IsVisible = false;
+        Check(!controller.CheckTarget() && !controller.CanRetry, "hidden target is unavailable");
+        api.IsVisible = true; api.IsAlive = false;
+        Check(!controller.CheckTarget() && !controller.CanRetry, "closed target is unavailable");
+        api.IsAlive = true; api.Error = 1460;
+        Check(!controller.Step() && controller.CanRetry && controller.Failure.Contains("1460"), "timeout has bounded recovery and precise diagnostic");
+        api.Error = 5;
+        Check(!controller.Step() && !controller.CanRetry && controller.Failure.Contains("win32=5"), "access denied is not endlessly retried");
+        var wait = new ScrollTargetWait();
+        Check(wait.ShouldWait(true, 100) && wait.ShouldWait(true, 2099) && !wait.ShouldWait(true, 2100), "temporary occlusion has a finite two-second grace");
+        wait.Reset(); Check(wait.ShouldWait(true, 10000), "recovery starts a fresh grace period for later transient failures");
+        Check(!wait.ShouldWait(false, 10001), "permanent failures never receive retry grace");
+
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        void Field(ScrollCaptureForm form, string name, object value) => typeof(ScrollCaptureForm).GetField(name, flags)!.SetValue(form, value);
+        T Value<T>(ScrollCaptureForm form, string name) => (T)typeof(ScrollCaptureForm).GetField(name, flags)!.GetValue(form)!;
+        void Tick(ScrollCaptureForm form)
+        {
+            var task = (Task)typeof(ScrollCaptureForm).GetMethod("SampleAsync", flags)!.Invoke(form, null)!;
+            var deadline = Environment.TickCount64 + 10000;
+            while (!task.IsCompleted && Environment.TickCount64 < deadline) { Application.DoEvents(); Thread.Sleep(1); }
+            Check(task.IsCompleted, "capture sample completes within bounded test timeout"); task.GetAwaiter().GetResult();
+        }
+        using var source = new Bitmap(160, 500);
+        var random = new Random(71);
+        for (var y = 0; y < source.Height; y++)
+        for (var x = 0; x < source.Width; x++) source.SetPixel(x, y, Color.FromArgb(random.Next(256), random.Next(256), random.Next(256)));
+        using (var host = new RecoveryHost(source))
+        using (var session = new ScrollCaptureForm(host, new Rectangle(0, 0, 160, 120), CancellationToken.None, host.Target))
+        {
+            using var first = host.CaptureRegion(new Rectangle(0, 0, 160, 120));
+            Field(session, "_store", new ScrollImageStore(first));
+            var scrolling = new AutoScrollController(host.Target); scrolling.Start(); Field(session, "_scroller", scrolling);
+            Field(session, "_awaitingScroll", true); Field(session, "_scrollIssuedAt", Environment.TickCount64 - 1000);
+            host.Target.Available = false; host.Target.Retryable = true;
+            var captures = host.Captures;
+            Tick(session);
+            Check(!Value<bool>(session, "_paused") && Value<bool>(session, "_waitingForTarget") && host.Captures == captures && host.Target.Steps == 0,
+                "transient covering neither samples covered pixels nor permanently pauses");
+            host.Target.Available = true; Tick(session);
+            Check(!Value<bool>(session, "_waitingForTarget") && !Value<bool>(session, "_paused") && host.Captures == captures + 1 && host.Target.Steps == 0,
+                "recovery samples outstanding scroll without sending a duplicate wheel");
+            host.Target.Available = false;
+            Value<ScrollTargetWait>(session, "_targetWait").ShouldWait(true, Environment.TickCount64 - 3000);
+            Tick(session);
+            Check(Value<bool>(session, "_paused"), "persistent covering pauses after grace expires");
+            host.Target.Available = true; Field(session, "_unchangedAttempts", 2);
+            var pause = Descendants(session).OfType<SnipLite.ScrollCapture.ScrollButton>().Single(b => b.Glyph == "resume");
+            typeof(Control).GetMethod("OnClick", flags)!.Invoke(pause, new object[] { EventArgs.Empty });
+            Check(!Value<bool>(session, "_paused") && Value<int>(session, "_unchangedAttempts") == 0, "resume clears stale end-of-content detection");
+            Check(Value<bool>(session, "_awaitingScroll"), "resume confirms current position before another wheel");
+            host.Target.Steps = 0;
+            Field(session, "_scrollIssuedAt", Environment.TickCount64 - 1000); Tick(session); Tick(session);
+            Check(host.Target.Steps == 0, "resuming at baseline does not scroll before confirming alignment");
+        }
+        using (var host = new RecoveryHost(source))
+        using (var session = new ScrollCaptureForm(host, new Rectangle(0, 0, 160, 120), CancellationToken.None, host.Target))
+        {
+            using var first = host.CaptureRegion(new Rectangle(0, 0, 160, 120));
+            Field(session, "_store", new ScrollImageStore(first));
+            var scrolling = new AutoScrollController(host.Target); scrolling.Start(); Field(session, "_scroller", scrolling);
+            host.Target.Retryable = true; host.Target.OnStep = () => { host.Offset = 30; return false; };
+            Tick(session);
+            Check(Value<bool>(session, "_awaitingScroll") && !Value<bool>(session, "_paused"), "timed-out wheel may already have been delivered");
+            Field(session, "_scrollIssuedAt", Environment.TickCount64 - 1000);
+            Tick(session); Tick(session);
+            Check(host.Target.Steps == 1 && Value<ScrollImageStore>(session, "_store").Height == 150,
+                "delivered timeout is stitched once without retrying scroll or skipping content");
+            var finish = Descendants(session).OfType<SnipLite.ScrollCapture.ScrollButton>().Single(b => b.Glyph == "finish");
+            var enabledChanges = 0; finish.EnabledChanged += (_, _) => enabledChanges++;
+            Field(session, "_scrollIssuedAt", Environment.TickCount64 - 1000);
+            Tick(session); Tick(session);
+            Check(enabledChanges == 0, "sampling does not flash finish button enabled state every timer tick");
+        }
+    }
+
+    private sealed class FakeScrollWindows : IScrollWindowApi
+    {
+        internal nint Child = 11, HitRoot = 1, SentTo;
+        internal bool IsAlive = true, IsVisible = true, IsMinimized;
+        internal Rectangle Bounds = new(0, 0, 1200, 900);
+        internal Point Point;
+        internal int Notches, Messages, Error;
+        public nint At(Point point) { Point = point; return Child; }
+        public nint Root(nint window) => HitRoot;
+        public bool Exists(nint window) => IsAlive;
+        public bool Visible(nint window) => IsVisible;
+        public bool Minimized(nint window) => IsMinimized;
+        public Rectangle? ClientBounds(nint window) => Bounds;
+        public bool Wheel(nint control, Point point, int notches, out int error)
+        { SentTo = control; Notches = notches; Messages++; error = Error; return error == 0; }
+    }
+
+    private sealed class RecoveryHost(Bitmap source) : IPluginHost, IDisposable
+    {
+        internal readonly FakeScrollTarget Target = new();
+        internal int Offset, Captures;
+        public string Language => "en-US";
+        public Bitmap CaptureRegion(Rectangle region) { Captures++; return source.Clone(new Rectangle(0, Offset, region.Width, region.Height), PixelFormat.Format32bppArgb); }
+        public Task<Rectangle?> SelectRegionAsync(CancellationToken token) => Task.FromResult<Rectangle?>(null);
+        public Task<PluginImage?> SelectImageAsync(CancellationToken token) => Task.FromResult<PluginImage?>(null);
+        public Task PreviewImageAsync(PluginImage image, CancellationToken token) => Task.CompletedTask;
+        public void StyleWindow(Form form) { }
+        public void Log(string message, Exception? exception = null) { }
+        public void Dispose() { }
+    }
+
+    private static void ScrollUi()
+    {
+        var artifacts = Path.Combine(Path.GetDirectoryName(ScrollPluginRoot())!, "scroll-ui-checks");
+        Directory.CreateDirectory(artifacts);
+        var originalLanguage = SnipLite.Localization.LanguageService.CurrentLanguage;
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        try
+        {
+            foreach (var language in new[] { "zh-CN", "zh-TW", "en-US" })
+            foreach (var dark in new[] { false, true })
+            {
+                SnipLite.Localization.LanguageService.Configure(language);
+                using var theme = AppTheme.Override(dark);
+                var host = new PluginHostServices(new AppSettings(), (_, _) => { });
+                using var form = new ScrollUiPreview(host)
+                { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000) };
+                form.Show(); Application.DoEvents(); form.PerformLayout();
+                var card = Descendants(form).OfType<ScrollCard>().Single();
+                var buttons = Descendants(form).OfType<SnipLite.ScrollCapture.ScrollButton>().ToArray();
+                Check(form.ClientRectangle.Contains(card.Bounds) && card.Width > 0, "plugin card fits themed window");
+                foreach (Control control in card.Controls)
+                {
+                    Check(card.ClientRectangle.Contains(control.Bounds), $"plugin control fits card: {language} / {control.GetType().Name}: control={control.Bounds}, card={card.ClientRectangle}, client={form.ClientSize}, dpi={form.DeviceDpi}");
+                    Check(!card.Controls.Cast<Control>().Any(other => other != control && other.Bounds.IntersectsWith(control.Bounds)), "plugin controls do not overlap");
+                }
+                foreach (var button in buttons)
+                {
+                    var label = TextRenderer.MeasureText(button.Text, button.Font, Size.Empty, TextFormatFlags.NoPadding).Width;
+                    Check(button.Width >= label + (int)(34 * form.DeviceDpi / 96f), "plugin action text and icon fit: " + button.Text);
+                }
+                Check(buttons.Single(b => b.Glyph == "finish").Primary, "finish action uses primary treatment");
+                Check(form.BackColor == AppTheme.Current.Window && ScrollPalette.For(card).Dark == dark, "plugin inherits host theme through public StyleWindow API");
+                using var first = new Bitmap(500, 400);
+                var store = new ScrollImageStore(first);
+                typeof(ScrollCaptureForm).GetField("_store", flags)!.SetValue(form, store);
+                typeof(ScrollCaptureForm).GetMethod("UpdateButtons", flags)!.Invoke(form, null);
+                typeof(ScrollCaptureForm).GetMethod("SetStatus", flags)!.Invoke(form, new object[] { language.StartsWith("zh") ? "正在自动滚动，鼠标可自由移动，可随时暂停或完成。" : "Scrolling automatically. The pointer can move freely; pause or finish at any time." });
+                foreach (var paused in new[] { false, true })
+                {
+                    if (paused) typeof(Control).GetMethod("OnClick", flags)!.Invoke(buttons.Single(b => b.Glyph == "pause"), new object[] { EventArgs.Empty });
+                    using var snapshot = new Bitmap(form.Width, form.Height);
+                    form.DrawToBitmap(snapshot, new Rectangle(Point.Empty, form.Size));
+                    snapshot.Save(Path.Combine(artifacts, $"scroll-{language}-{(dark ? "dark" : "light")}-{(paused ? "paused" : "capturing")}.png"));
+                }
+                Check(!typeof(ScrollCaptureForm).Assembly.GetReferencedAssemblies().Any(a => a.Name == "SnipLite"), "plugin UI has no host implementation dependency");
+            }
+        }
+        finally { SnipLite.Localization.LanguageService.Configure(originalLanguage); }
+    }
+
+    private static void PreviewUi()
+    {
+        var artifacts = Path.Combine(Path.GetDirectoryName(ScrollPluginRoot())!, "preview-ui-checks");
+        Directory.CreateDirectory(artifacts);
+        using var input = new PluginImage(new Bitmap(800, 6000));
+        using (var g = Graphics.FromImage(input.Image))
+        {
+            g.Clear(Color.White);
+            using var font = new Font("Segoe UI", 18);
+            for (var row = 0; row < 120; row++)
+            {
+                using var back = new SolidBrush(row % 2 == 0 ? Color.FromArgb(232, 241, 252) : Color.White);
+                g.FillRectangle(back, 0, row * 50, 800, 50);
+                g.DrawString($"Row {row:000} — Preview zoom and pan — {row * 71}", font, Brushes.Black, 20, row * 50 + 8);
+            }
+        }
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        var originalLanguage = SnipLite.Localization.LanguageService.CurrentLanguage;
+        try
+        {
+            foreach (var language in new[] { "zh-CN", "en-US", "de" })
+            foreach (var dark in new[] { false, true })
+            {
+                SnipLite.Localization.LanguageService.Configure(language);
+                using var theme = AppTheme.Override(dark);
+                var published = new List<(Size Size, bool Pin)>();
+                var settings = new AppSettings { DisplayLanguage = language };
+                var host = new PluginHostServices(settings, (_, _) => { });
+                using (var form = new PluginImagePreview(input, settings, (image, pin) => published.Add((image.Image.Size, pin)), host, null, CancellationToken.None)
+                { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000) })
+                {
+                    form.Show(); Application.DoEvents();
+                    var view = Descendants(form).OfType<ZoomImageViewport>().Single();
+                    var tools = Descendants(form).OfType<FluentToolbar>().Single();
+                    var buttons = Descendants(form).OfType<FluentToolbarButton>().ToArray();
+                    FluentToolbarButton Button(string icon) => buttons.Single(b => b.IconId == icon);
+                    Check(view.FitMode == ImageFitMode.Width && view.Zoom <= 1 && view.AutoScrollMinSize.Height > view.Height, "long preview opens at readable fit width");
+                    Check(view.ImageBounds.Width <= view.ClientSize.Width, "fit width avoids horizontal overflow");
+                    view.Fit(ImageFitMode.Image); Application.DoEvents();
+                    Check(view.ImageBounds.Width <= view.ClientSize.Width && view.ImageBounds.Height <= view.ClientSize.Height, "fit image shows whole long capture");
+                    Button("zoom-in").PerformClick();
+                    Check(view.FitMode == ImageFitMode.Manual, "zoom buttons switch from fit mode to manual");
+                    view.SetZoom(2); view.AutoScrollPosition = new Point(160, 700);
+                    var anchor = new Point(view.ClientSize.Width / 2, view.ClientSize.Height / 2);
+                    var before = view.ImagePoint(anchor);
+                    view.SetZoom(2.4, anchor); Application.DoEvents();
+                    var after = view.ImagePoint(anchor);
+                    Check(Math.Abs(before.X - after.X) < 1 && Math.Abs(before.Y - after.Y) < 1, "zoom preserves image point beneath pointer");
+                    var position = view.AutoScrollPosition;
+                    form.ClientSize = new Size(form.ClientSize.Width + 50, form.ClientSize.Height + 40); Application.DoEvents();
+                    Check(view.Zoom == 2.4 && view.AutoScrollPosition == position, "resize preserves manual zoom and scroll position");
+                    view.SetZoom(double.PositiveInfinity); Check(view.Zoom == 2.4, "invalid zoom ignored");
+                    view.SetZoom(100); Check(view.Zoom == ZoomImageViewport.MaxZoom && !Button("zoom-in").Enabled, "upper zoom bound updates button state");
+                    view.SetZoom(0); Check(view.Zoom == ZoomImageViewport.MinZoom && !Button("zoom-out").Enabled, "lower zoom bound updates button state");
+                    view.SetZoom(2); view.AutoScrollPosition = new Point(100, 300);
+                    var startScroll = view.AutoScrollPosition;
+                    typeof(Control).GetMethod("OnMouseDown", flags)!.Invoke(view, new object[] { new MouseEventArgs(MouseButtons.Left, 1, 250, 250, 0) });
+                    typeof(Control).GetMethod("OnMouseMove", flags)!.Invoke(view, new object[] { new MouseEventArgs(MouseButtons.Left, 0, 210, 200, 0) });
+                    typeof(Control).GetMethod("OnMouseUp", flags)!.Invoke(view, new object[] { new MouseEventArgs(MouseButtons.Left, 1, 210, 200, 0) });
+                    Check(view.AutoScrollPosition.X < startScroll.X && view.AutoScrollPosition.Y < startScroll.Y, "drag pans long image horizontally and vertically");
+                    Button("pin").PerformClick(); Button("copy").PerformClick();
+                    Check(published.SequenceEqual(new[] { (new Size(800, 6000), true), (new Size(800, 6000), false) }), "zoom preserves original pixels for pin and copy");
+                    Button("crop").PerformClick(); Application.DoEvents();
+                    var numbers = Descendants(form).OfType<NumericUpDown>().ToArray();
+                    numbers[0].Value = 100; numbers[1].Value = 200;
+                    Descendants(form).OfType<FluentButton>().Single().PerformClick();
+                    Button("copy").PerformClick();
+                    Check(published.Last() == (new Size(800, 5700), false), "crop exports pixel dimensions independently of zoom");
+                    Check(input.Image.Size == new Size(800, 6000), "preview crop leaves borrowed source intact");
+                    Button("crop").PerformClick(); Button("fit-width").PerformClick(); Application.DoEvents();
+                    var message = Message.Create(form.Handle, 0x100, 0, 0);
+                    var keyArgs = new object[] { message, Keys.Control | Keys.D0 };
+                    Check((bool)typeof(PluginImagePreview).GetMethod("ProcessCmdKey", flags)!.Invoke(form, keyArgs)! && view.Zoom == 1, "Ctrl+0 resets actual size");
+                    keyArgs[1] = Keys.Add;
+                    Check((bool)typeof(PluginImagePreview).GetMethod("ProcessCmdKey", flags)!.Invoke(form, keyArgs)! && Math.Abs(view.Zoom - 1.2) < .00001, "plus key zooms preview");
+                    if (language == "zh-CN")
+                    {
+                        view.SetZoom(1.5); Application.DoEvents();
+                        using var enlarged = new Bitmap(form.Width, form.Height);
+                        form.DrawToBitmap(enlarged, new Rectangle(Point.Empty, form.Size));
+                        enlarged.Save(Path.Combine(artifacts, $"preview-zoomed-{(dark ? "dark" : "light")}.png"));
+                    }
+                    foreach (var small in new[] { false, true })
+                    {
+                        if (small) form.Size = form.MinimumSize;
+                        Button("fit-width").PerformClick(); Application.DoEvents();
+                        foreach (Control control in tools.Controls)
+                            Check(tools.ClientRectangle.Contains(control.Bounds), "preview toolbar items stay inside toolbar on resize");
+                        Check(!view.Bounds.IntersectsWith(tools.Bounds), "preview toolbar leaves image viewport clear");
+                        var minimize = Button("minimize");
+                        var maximize = Button("maximize");
+                        var close = Button("close");
+                        Check(close.Right <= form.ClientSize.Width && close.Right >= form.ClientSize.Width - close.Width &&
+                            minimize.Right == maximize.Left && maximize.Right == close.Left && close.Bottom <= tools.Top,
+                            "preview caption actions stay grouped on the right after resizing");
+                        using var snapshot = new Bitmap(form.Width, form.Height);
+                        form.DrawToBitmap(snapshot, new Rectangle(Point.Empty, form.Size));
+                        snapshot.Save(Path.Combine(artifacts, $"preview-{language}-{(dark ? "dark" : "light")}-{(small ? "small" : "normal")}.png"));
+                        Button("crop").PerformClick(); Application.DoEvents();
+                        var cropPanel = (FlowLayoutPanel)typeof(PluginImagePreview).GetField("_cropPanel", flags)!.GetValue(form)!;
+                        Check(cropPanel.Visible && !cropPanel.Bounds.IntersectsWith(view.Bounds), "crop panel reserves space above image");
+                        foreach (Control control in cropPanel.Controls) Check(cropPanel.ClientRectangle.Contains(control.Bounds), "crop editors fit narrow preview");
+                        var cropButton = cropPanel.Controls.OfType<FluentButton>().Single();
+                        Check(cropButton.Width > TextRenderer.MeasureText(cropButton.Text, cropButton.Font).Width + (int)(18 * form.DeviceDpi / 96f), "crop action text fits without ellipsis");
+                        if (language == "zh-CN" && small)
+                        {
+                            using var cropSnapshot = new Bitmap(form.Width, form.Height);
+                            form.DrawToBitmap(cropSnapshot, new Rectangle(Point.Empty, form.Size));
+                            cropSnapshot.Save(Path.Combine(artifacts, $"preview-crop-{(dark ? "dark" : "light")}.png"));
+                        }
+                        Button("crop").PerformClick(); Application.DoEvents();
+                    }
+                    Check(!string.IsNullOrEmpty(Button("pin").AccessibleName) && !string.IsNullOrEmpty(Button("save").AccessibleName), "toolbar icon actions retain accessible names");
+                    var hitTest = typeof(PluginImagePreview).GetMethod("FrameHitTest", flags)!;
+                    Check((int)hitTest.Invoke(form, new object[] { new Point(1, 1) })! == 13 &&
+                        (int)hitTest.Invoke(form, new object[] { new Point(100, 15) })! == 2 &&
+                        (int)hitTest.Invoke(form, new object[] { new Point(100, view.Top + 15) })! == 1,
+                        "custom preview frame preserves edge resizing, title drag and image input");
+                    Button("maximize").PerformClick(); Application.DoEvents();
+                    Check(form.WindowState == FormWindowState.Maximized && Button("restore").Visible,
+                        "preview can maximize and offers restore");
+                    var screen = Screen.FromHandle(form.Handle);
+                    Check(screen.WorkingArea.Contains(form.RectangleToScreen(form.ClientRectangle)),
+                        "maximized preview client fits the monitor work area");
+                    Button("restore").PerformClick(); Application.DoEvents();
+                    Check(form.WindowState == FormWindowState.Normal, "preview restores from maximized");
+                    Button("close").PerformClick();
+                    Check(form.IsDisposed, "preview close caption action closes the window");
+                }
+                Check(input.Image.GetPixel(10, 10).A == 255, "preview disposal does not dispose source image");
+            }
+        }
+        finally { SnipLite.Localization.LanguageService.Configure(originalLanguage); }
+    }
+
+    private sealed class ScrollUiPreview(IPluginHost host) : ScrollCaptureForm(host, new Rectangle(100, 100, 500, 400), CancellationToken.None)
+    {
+        // Establish real native child visibility for rendering without starting capture or scrolling.
+        protected override void OnShown(EventArgs e) { }
+    }
+
+    private sealed class FakeScrollTarget : IScrollTarget
+    {
+        public bool Available = true;
+        public bool AcceptsWheel = true;
+        public bool Retryable;
+        public bool CanRetry => Retryable;
+        public string Failure => "test target unavailable";
+        public Func<bool>? OnStep;
+        public int Steps;
+        public int LastNotches;
+        public bool IsAvailable() => Available;
+        public bool SendWheel(int notches) { Steps++; LastNotches = notches; return OnStep?.Invoke() ?? AcceptsWheel; }
+    }
+
+    private static IEnumerable<Control> Descendants(Control parent)
+    {
+        foreach (Control child in parent.Controls)
+        {
+            yield return child;
+            foreach (var nested in Descendants(child)) yield return nested;
+        }
+    }
+
+    internal static string ScrollPluginRoot() => Path.GetDirectoryName(ScrollPluginDirectory())!;
+    private static string ScrollPluginDirectory()
+    {
+        var repo = new DirectoryInfo(AppContext.BaseDirectory);
+        while (repo is not null && !File.Exists(Path.Combine(repo.FullName, "SnipLite.slnx"))) repo = repo.Parent;
+        return Path.Combine(repo!.FullName, "src/SnipLite.ScrollCapture/bin/Release/net10.0-windows");
+    }
+
+    private static void PreferencesIntegration()
+    {
+        var directory = Path.Combine(Path.GetDirectoryName(ScrollPluginRoot())!, "preferences-checks");
+        Directory.CreateDirectory(directory);
+        var preferences = Path.Combine(directory, Guid.NewGuid().ToString("N") + ".json");
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        using var manager = new PluginManager(new FakeHost(), () => true, preferences);
+        manager.Discover(ScrollPluginRoot());
+        var official = manager.Records.Single();
+        Check(official.Icon is not null, "disabled plugin row reads artwork from its package");
+        Check(!official.Loaded && !official.Enabled && manager.Commands.Count == 0, "separate scrolling plugin starts disabled");
+        Check(!typeof(AppSettings).Assembly.GetReferencedAssemblies().Any(n => n.Name == "SnipLite.ScrollCapture"), "host has no scrolling plugin assembly dependency");
+        Check(new AppSettings().HiddenToolbarButtons.Count == 0, "all toolbar buttons visible by default");
+        Check(JsonSerializer.Deserialize<AppSettings>("{\"HiddenToolbarButtons\":[\"rect\"]}")!.HiddenToolbarButtons.Contains("rect"), "individual visibility preference round-trips");
+        foreach (var language in SnipLite.Localization.LanguageService.Languages)
+        {
+            using var form = new PreferencesForm(new AppSettings { DisplayLanguage = language.Code }, PreferencesForm.PluginsTab, manager)
+            { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000) };
+            form.Show(); Application.DoEvents();
+            var toggle = Descendants(form).OfType<FluentToggle>().Single();
+            Check(toggle.Checked == official.Enabled, "plugin row reflects enable state: " + language.Code);
+            toggle.Checked = !official.Enabled;
+            Application.DoEvents();
+            Check(manager.Commands.Count == (official.Enabled ? 1 : 0), "plugin switch changes commands immediately: " + language.Code);
+            using (var restartedPlugin = new PluginManager(new FakeHost(), () => true, preferences))
+            {
+                restartedPlugin.Discover(ScrollPluginRoot());
+                Check(restartedPlugin.Commands.Count == (official.Enabled ? 1 : 0), "plugin switch persists across restart");
+            }
+            manager.SetEnabled(official, true); Application.DoEvents();
+            form.SelectSubPage(0, 1);
+            Check(Descendants(form).OfType<FluentToggle>().Count() == AnnotationBar.BuiltInButtons.Length + manager.Commands.Count, "individual built-in and enabled plugin toolbar switches");
+            foreach (var tab in new[] { 0, PreferencesForm.PluginsTab })
+            {
+                form.SelectSubPage(tab, tab == 0 ? 1 : 0);
+                var controls = Descendants(form).ToArray(); var scale = form.DeviceDpi / 96f;
+                foreach (var size in new[] { new Size((int)(760 * scale), (int)(520 * scale)), new Size((int)(1160 * scale), (int)(800 * scale)) })
+                {
+                    form.ClientSize = size; Application.DoEvents();
+                    Check(controls.SequenceEqual(Descendants(form)), "new preference pages retain controls during resize");
+                    using var bitmap = new Bitmap(form.ClientSize.Width, form.ClientSize.Height);
+                    using var graphics = Graphics.FromImage(bitmap);
+                    typeof(PreferencesForm).GetMethod("LayoutTabs", flags)!.Invoke(form, new object[] { graphics });
+                    var tabs = (List<(Rectangle Rect, int Index)>)typeof(PreferencesForm).GetField("_tabRects", flags)!.GetValue(form)!;
+                    Check(tabs.Count == 9 && tabs.All(t => t.Rect.Bottom < form.ClientSize.Height - (int)(34 * scale)), "all nine navigation tabs fit");
+                    Check(!tabs.Any(a => tabs.Any(b => a.Index != b.Index && a.Rect.IntersectsWith(b.Rect))), "plugin navigation does not overlap");
+                }
+                if (language.Code == "zh-CN")
+                {
+                    using var image = new Bitmap(form.Width, form.Height);
+                    form.DrawToBitmap(image, new Rectangle(Point.Empty, form.Size));
+                    image.Save(Path.Combine(directory, $"preferences-{tab}.png"));
+                    if (tab == 0)
+                    {
+                        var page = (Panel)typeof(PreferencesForm).GetField("_page", flags)!.GetValue(form)!;
+                        page.AutoScrollPosition = new Point(0, 10000); Application.DoEvents();
+                        using var pluginButtons = new Bitmap(form.Width, form.Height);
+                        form.DrawToBitmap(pluginButtons, new Rectangle(Point.Empty, form.Size));
+                        pluginButtons.Save(Path.Combine(directory, "preferences-plugin-buttons.png"));
+                    }
+                }
+            }
+        }
+        File.Delete(preferences);
+        var previewBar = new AnnotationBar
+        {
+            PluginButtons = manager.Commands.Select(c => (c.Id, c.Title.Get("zh-CN"), c.Icon)).ToArray()
+        };
+        previewBar.Layout(new Rectangle(80, 100, 1000, 500), new Size(1800, 900));
+        using (var toolbar = new Bitmap(1800, 900))
+        {
+            using var graphics = Graphics.FromImage(toolbar); graphics.Clear(Color.WhiteSmoke); previewBar.Render(graphics);
+            toolbar.Save(Path.Combine(directory, "toolbar-plugin-icon.png"));
+        }
+        var bar = new AnnotationBar { PluginButtons = new[] { ("plugin/capture", "Capture", (Image?)null) } };
+        var selection = new Rectangle(80, 100, 600, 500); var screen = new Size(1200, 900);
+        bar.Layout(selection, screen);
+        var before = bar.MainBounds.Width;
+        foreach (var (id, _) in AnnotationBar.BuiltInButtons)
+        {
+            bar.HiddenButtons = new HashSet<string> { id };
+            bar.Layout(selection, screen);
+            Check(bar.ItemBounds(id).IsEmpty && bar.MainBounds.Width < before, "hidden toolbar button removed from layout: " + id);
+            Check(!bar.ItemBounds("plugin/capture").IsEmpty, "plugin button unaffected by built-in visibility");
+        }
+        bar.HiddenButtons = new HashSet<string> { "plugin/capture" }; bar.Layout(selection, screen);
+        Check(bar.ItemBounds("plugin/capture").IsEmpty && !bar.ItemBounds("rect").IsEmpty, "plugin toolbar visibility is independent");
+        bar.HiddenButtons = AnnotationBar.BuiltInButtons.Select(b => b.Id).Append("plugin/capture").ToHashSet(); bar.Layout(selection, screen);
+        Check(!bar.Visible && bar.MainBounds.Height == 0, "all hidden buttons leave no clickable toolbar");
+        bar.Status = "Recognition status"; bar.Layout(selection, screen);
+        Check(bar.Visible && bar.MessageBounds.Height > 0 && bar.MainBounds.Height == 0, "button visibility preserves recognition status strip");
+        bar.Status = "";
+        bar.HiddenButtons = new HashSet<string>(); bar.PluginButtons = Enumerable.Range(0, 25).Select(i => ($"plugin/{i}", "Plugin " + i, (Image?)null)).ToArray();
+        bar.Layout(selection, new Size(800, 900));
+        Check(bar.MainBounds.Width < 800 && bar.MainBounds.Height > 44, "many plugin buttons wrap within screen");
+        var host = new PluginHostServices(new AppSettings(), (_, _) => { }) { PendingSelection = selection };
+        Check(host.SelectRegionAsync(CancellationToken.None).Result == selection && host.PendingSelection is null, "F1 plugin invocation consumes existing region once");
+    }
+
+    private static void BundledPlugin()
+    {
+        var directory = Path.Combine(Path.GetDirectoryName(ScrollPluginRoot())!, "bundled-checks", Guid.NewGuid().ToString("N"));
+        var cache = Path.Combine(directory, "cache");
+        var preferences = Path.Combine(directory, "plugins.json");
+        var imports = Path.Combine(directory, "imports");
+        var legacy = Path.Combine(imports, "old-scroll");
+        Directory.CreateDirectory(legacy);
+        File.WriteAllText(Path.Combine(legacy, "plugin.json"), """{"id":"SNIPLITE.SCROLL-CAPTURE","version":"0.1.0"}""");
+        var host = new FakeHost();
+        string extracted;
+        using (var manager = new PluginManager(host, () => true, preferences))
+        {
+            manager.DiscoverBundled(cache);
+            manager.Discover(imports);
+            var bundled = manager.Records.Single();
+            Check(bundled.Bundled && bundled.Loaded && bundled.Enabled && bundled.Icon is not null,
+                "clean profile loads the bundled plugin, manifest and icon by default");
+            Check(manager.Commands.Single().Id == BundledScrollPlugin.Id + "/capture",
+                "legacy manual copy does not produce a second command or error row");
+            extracted = bundled.Directory;
+            Check(BundledScrollPlugin.Prepare(cache) == extracted, "valid extracted bundle is reused");
+            manager.SetEnabled(bundled, false);
+        }
+        using (var manager = new PluginManager(host, () => true, preferences))
+        {
+            manager.DiscoverBundled(cache);
+            manager.Discover(imports);
+            Check(!manager.Records.Single().Enabled && manager.Commands.Count == 0, "bundled plugin honors previous opt-out on restart");
+        }
+        File.WriteAllText(Path.Combine(extracted, "plugin.json"), "{}");
+        var repaired = BundledScrollPlugin.Prepare(cache);
+        Check(repaired != extracted && PluginManifest.Read(Path.Combine(repaired, "plugin.json")).Id == BundledScrollPlugin.Id,
+            "altered bundle cache is replaced by resources from the host");
+    }
+
+    private static async Task InstallerChecks()
+    {
+        var temporary = Path.Combine(Path.GetDirectoryName(ScrollPluginRoot())!, "installer-checks", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporary);
+        try
+        {
+            var package = Path.Combine(temporary, "scroll.snipplugin");
+            System.IO.Compression.ZipFile.CreateFromDirectory(ScrollPluginDirectory(), package);
+            try { PluginInstaller.Import(package, Path.Combine(temporary, "reserved"), BundledScrollPlugin.Id); throw new Exception("Bundled plugin override accepted."); }
+            catch (IOException) { _checks++; }
+            var installedRoot = Path.Combine(temporary, "installed");
+            using var manager = new PluginManager(new FakeHost(), () => true, Path.Combine(temporary, "settings.json"));
+            manager.Discover(installedRoot); Check(manager.Records.Count == 0, "clean application has no scrolling plugin installed");
+            var folder = PluginInstaller.Import(package, installedRoot);
+            Check(File.Exists(Path.Combine(folder, "SnipLite.ScrollCapture.dll")), "ZIP installs separate scrolling DLL");
+            manager.Discover(installedRoot); manager.Discover(installedRoot);
+            Check(manager.Records.Count == 1 && manager.Commands.Count == 0, "import appears once and never enables code automatically");
+            manager.SetEnabled(manager.Records.Single(), true);
+            Check(manager.Commands.Count == 1, "imported plugin enables without restart");
+            manager.SetEnabled(manager.Records.Single(), false);
+            Check(manager.Commands.Count == 0, "plugin disable immediately removes commands");
+            try { PluginInstaller.Import(package, installedRoot); throw new Exception("Duplicate package overwritten."); }
+            catch (IOException) { _checks++; }
+            Check(!Directory.GetDirectories(installedRoot, ".install-*").Any(), "duplicate import cleans staging folder");
+            void RejectPackage(string name, params string[] entries)
+            {
+                var zipPath = Path.Combine(temporary, name + ".zip");
+                using (var zip = System.IO.Compression.ZipFile.Open(zipPath, System.IO.Compression.ZipArchiveMode.Create))
+                    foreach (var entry in entries) { using var writer = new StreamWriter(zip.CreateEntry(entry).Open()); writer.Write("invalid"); }
+                try { PluginInstaller.Import(zipPath, installedRoot); throw new Exception("Invalid package accepted: " + name); }
+                catch (InvalidDataException) { _checks++; }
+                Check(!Directory.GetDirectories(installedRoot, ".install-*").Any(), "rejected package leaves no staging: " + name);
+            }
+            RejectPackage("traversal", "../outside.txt"); RejectPackage("absolute", "C:/outside.txt");
+            RejectPackage("duplicate", "a.txt", "A.txt"); RejectPackage("missing-manifest", "readme.txt");
+            RejectPackage("multiple-manifests", "one/plugin.json", "two/plugin.json");
+            Check(!File.Exists(Path.Combine(temporary, "outside.txt")), "ZIP traversal writes nothing outside staging");
+            using (var client = new HttpClient(new PackageHandler(File.ReadAllBytes(package))))
+            {
+                var downloadRoot = Path.Combine(temporary, "downloaded");
+                var downloaded = await PluginInstaller.DownloadAsync(new Uri("https://plugins.example/test.snipplugin"), downloadRoot, CancellationToken.None, client);
+                Check(File.Exists(Path.Combine(downloaded, "plugin.json")), "HTTPS response downloads and installs through shared importer");
+                try { await PluginInstaller.DownloadAsync(new Uri("http://plugins.example/test.zip"), downloadRoot, CancellationToken.None, client); throw new Exception("Insecure URL accepted."); }
+                catch (ArgumentException) { _checks++; }
+                using var canceled = new CancellationTokenSource(); canceled.Cancel();
+                try { await PluginInstaller.DownloadAsync(new Uri("https://plugins.example/test.zip"), Path.Combine(temporary, "canceled"), canceled.Token, client); throw new Exception("Cancellation ignored."); }
+                catch (OperationCanceledException) { _checks++; }
+                Check(!Directory.Exists(Path.Combine(temporary, "canceled")), "canceled download installs no plugin");
+            }
+        }
+        finally
+        {
+            GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+            try { Directory.Delete(temporary, true); } catch (IOException) { }
+        }
+    }
+
+    private sealed class PackageHandler(byte[] package) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            { RequestMessage = request, Content = new ByteArrayContent(package) });
+        }
+    }
+
+    private static void AssertPixels(Bitmap actual, Bitmap source, int height)
+    {
+        Check(actual.Size == new Size(source.Width, height), "stitched dimensions");
+        for (var y = 0; y < height; y++)
+        for (var x = 0; x < source.Width; x++)
+            if (actual.GetPixel(x, y) != source.GetPixel(x, y)) throw new Exception($"Stitch differs at {x},{y}.");
+        _checks++;
+    }
+
+    private static async Task Plugins()
+    {
+        var rootInfo = new DirectoryInfo(AppContext.BaseDirectory);
+        while (rootInfo is not null && !File.Exists(Path.Combine(rootInfo.FullName, "SnipLite.slnx"))) rootInfo = rootInfo.Parent;
+        var root = rootInfo?.FullName ?? throw new DirectoryNotFoundException("Run checks from the source checkout.");
+        var fixtureOutput = Path.Combine(root, "validation/PluginFixture/bin/Release/net10.0-windows");
+        var temporary = Path.Combine(root, ".local/plugin-checks", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporary);
+        try
+        {
+            var plugins = Path.Combine(temporary, "plugins"); Directory.CreateDirectory(plugins);
+            string Fixture(string folder, string id, string type = "PluginFixture.FixturePlugin", int api = 1, string min = "0.3.14", string entry = "PluginFixture.dll", string arch = "any")
+            {
+                var directory = Path.Combine(plugins, folder); Directory.CreateDirectory(directory);
+                foreach (var file in Directory.GetFiles(fixtureOutput)) File.Copy(file, Path.Combine(directory, Path.GetFileName(file)), true);
+                File.WriteAllText(Path.Combine(directory, "plugin.json"), JsonSerializer.Serialize(new
+                { id, name = folder, version = "1.0.0", apiVersion = api, minHostVersion = min, entryAssembly = entry, entryType = type, architecture = arch }));
+                return directory;
+            }
+            Fixture("a-fixture", "checks.fixture");
+            var preferences = Path.Combine(temporary, "preferences.json"); var host = new FakeHost();
+            using (var manager = new PluginManager(host, () => true, preferences))
+            {
+                manager.Discover(plugins);
+                Check(manager.Commands.Count == 0 && !manager.Records[0].Enabled, "external plugins default disabled");
+                Check(manager.Records[0].Icon is null, "existing iconless plugin remains compatible");
+                manager.SetEnabled(manager.Records[0], true);
+            }
+            using (var manager = new PluginManager(host, () => true, preferences))
+            {
+                manager.Discover(plugins);
+                Check(manager.Commands.Count == 5 && manager.Records[0].Loaded, "shared SDK identity and all four extension types load");
+                await manager.ExecuteAsync("checks.fixture/ping");
+                Check(host.Messages.Contains("fixture-private-dependency"), "private dependency resolves");
+                await manager.ExecuteAsync("checks.fixture/capture");
+                await manager.ExecuteAsync("checks.fixture/process");
+                await manager.ExecuteAsync("checks.fixture/export");
+                Check(host.Previews == 2 && host.Messages.Contains("fixture-export:64"), "capture processor and output adapters execute");
+                manager.SetHotkey("checks.fixture/ping", Keys.Control | Keys.Alt | Keys.F10);
+                Check(manager.Hotkey("checks.fixture/ping") == (Keys.Control | Keys.Alt | Keys.F10), "shortcut persists");
+                var hold = manager.ExecuteAsync("checks.fixture/hold");
+                Check(manager.IsRunning && !manager.WhenIdle.IsCompleted, "execution lifetime tracked");
+                var count = host.Messages.Count; await manager.ExecuteAsync("checks.fixture/ping");
+                Check(count == host.Messages.Count, "overlapping commands refused");
+                manager.Cancel(); await hold;
+                Check(!manager.IsRunning && manager.WhenIdle.IsCompleted, "command cancellation completes");
+                var disabledTask = manager.ExecuteAsync("checks.fixture/hold");
+                manager.SetEnabled(manager.Records.Single(), false);
+                await disabledTask;
+                Check(!manager.IsRunning && manager.Commands.Count == 0 && manager.Processors.Count == 0 && manager.Outputs.Count == 0, "disable cancels activity and removes all extension types immediately");
+                manager.SetEnabled(manager.Records.Single(), true);
+                Check(manager.Commands.Count == 5, "reenable restores contributions without duplicate registration");
+                manager.Dispose(); Check(manager.Commands.Count == 0 && manager.Processors.Count == 0, "registrations released on disposal");
+            }
+            Fixture("b-duplicate", "checks.fixture");
+            Fixture("c-broken", "checks.broken", "PluginFixture.BrokenPlugin");
+            Fixture("d-api", "checks.api", api: 99);
+            Fixture("e-version", "checks.future", min: "99.0.0");
+            Fixture("f-path", "checks.path", entry: "../PluginFixture.dll");
+            Fixture("g-arch", "checks.arch", arch: "not-a-platform");
+            using (var manager = new PluginManager(host, () => true, Path.Combine(temporary, "fresh.json")))
+            {
+                manager.Discover(plugins);
+                foreach (var record in manager.Records.Where(r => r.Error.Length == 0).ToArray())
+                { try { manager.SetEnabled(record, true); } catch (Exception ex) { record.Error = ex.GetBaseException().Message; } }
+                Check(manager.Commands.Count == 5, "failed initialization rolls back commands");
+                Check(manager.Records.Count(r => r.Error.Length > 0) == 6, "duplicates invalid API version path and architecture isolated");
+                Check(manager.Records.Any(r => r.Error.Contains("fixture-initialization-failed")), "initialization error reported");
+            }
+            using var official = new PluginManager(host, () => true, Path.Combine(temporary, "official.json"));
+            official.Discover(ScrollPluginRoot());
+            official.SetEnabled(official.Records.Single(), true);
+            Check(official.Commands.Any(c => c.Id == "sniplite.scroll-capture/capture"), "separately distributed official plugin loads independently");
+            Check(official.Commands.Single().Icon is not null && ReferenceEquals(official.Commands.Single().Icon, official.Records.Single().Icon), "registered command uses plugin-supplied artwork");
+        }
+        finally
+        {
+            // Windows may retain mapped plugin DLLs until the collectible context is collected.
+            GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+            try { Directory.Delete(temporary, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    private sealed class FakeHost : IPluginHost
+    {
+        public string Language => "en-US";
+        public List<string> Messages { get; } = new();
+        public int Previews;
+        public Bitmap CaptureRegion(Rectangle bounds) => new(bounds.Width, bounds.Height);
+        public Task<Rectangle?> SelectRegionAsync(CancellationToken token) => Task.FromResult<Rectangle?>(new Rectangle(0, 0, 64, 100));
+        public Task<PluginImage?> SelectImageAsync(CancellationToken token) => Task.FromResult<PluginImage?>(new(new Bitmap(64, 100)));
+        public Task PreviewImageAsync(PluginImage image, CancellationToken token) { Previews++; return Task.CompletedTask; }
+        public void StyleWindow(Form form) { }
+        public void Log(string message, Exception? exception = null) { Messages.Add(message); }
+    }
+}
+
+internal sealed class ScrollDemo : Form
+{
+    private readonly PluginManager _manager;
+    private readonly Bitmap _document = new(900, 7000);
+    public ScrollDemo()
+    {
+        Text = "SnipLite — 自动长截图测试（半屏加速版）";
+        StartPosition = FormStartPosition.Manual; Location = new Point(100, 100); ClientSize = new Size(980, 850);
+        using (var g = Graphics.FromImage(_document))
+        {
+            g.Clear(Color.White);
+            using var font = new Font("Segoe UI", 16);
+            for (var row = 0; row < 140; row++)
+            {
+                using var background = new SolidBrush(row % 2 == 0 ? Color.FromArgb(240, 245, 252) : Color.White);
+                g.FillRectangle(background, 0, row * 50, 900, 50);
+                g.DrawString($"Row {row:000} — scrolling screenshot test — value {row * row + 7919}", font, Brushes.Black, 15, row * 50 + 10);
+                using var marker = new SolidBrush(Color.FromArgb((row * 43) % 255, (row * 71) % 255, (row * 23) % 255));
+                g.FillRectangle(marker, 780, row * 50 + 5, 85, 40);
+            }
+        }
+        var view = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
+        var picture = new PictureBox { Image = _document, Size = _document.Size };
+        view.Controls.Add(picture);
+        var top = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 55 };
+        var start = new Button { Text = "Start scroll capture", Width = 180, Height = 40 };
+        var manage = new Button { Text = "Plugin manager", Width = 160, Height = 40 };
+        top.Controls.AddRange(new Control[] { start, manage });
+        Controls.Add(view); Controls.Add(top);
+        var host = new PluginHostServices(new AppSettings { ShowToast = false, AutoSave = false, HistoryImageLimit = 0 }, (image, _) => Services.CopyImage(image.Image, true));
+        _manager = new PluginManager(host, () => true, Path.Combine(AppContext.BaseDirectory, "demo-plugins.json")); host.Manager = _manager;
+        _manager.Discover(Program.ScrollPluginRoot());
+        _manager.SetEnabled(_manager.Records.Single(), true);
+        start.Click += async (_, _) =>
+        {
+            if (_manager.IsRunning) return;
+            view.AutoScrollPosition = Point.Empty; view.Refresh();
+            await _manager.ExecuteAsync("sniplite.scroll-capture/capture");
+        };
+        manage.Click += (_, _) => new PluginManagementForm(_manager, host, (_, _) => true).Show();
+        FormClosed += (_, _) => { _manager.Dispose(); picture.Image = null; _document.Dispose(); };
+    }
+}

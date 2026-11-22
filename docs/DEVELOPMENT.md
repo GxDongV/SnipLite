@@ -13,7 +13,20 @@ dotnet build SnipLite.slnx -c Release
 dotnet run --project src/SnipLite/SnipLite.csproj -c Release --no-build
 ```
 
-正式程序支持 `--capture`（启动后截图）、`--prefs` / `--prefs:N`（打开首选项指定页，N 为 0–7）、`--menu`（打开托盘菜单）。启动新版前请从托盘退出旧实例。
+正式程序支持 `--capture`（启动后截图）、`--scroll-capture`（启动长截图插件）、`--prefs` / `--prefs:N`（打开首选项指定页，N 为 0–8，8 为插件，7 仍为关于）、`--menu`（打开托盘菜单）。启动新版前请从托盘退出旧实例。
+
+v0.3.15 起，长截图随所有 Windows 发行包交付，主程序启动时从自身资源提取插件并通过插件加载器默认启用。其他插件可在「首选项 → 插件」导入或通过 HTTPS 直链下载，导入后手动启用。「首选项 → 常规 → 布局」分别控制内置及插件按钮在 F1 工具栏的显隐。
+
+`./scripts/package-plugin.ps1 -Project <项目路径>` 构建独立插件包，默认输出到 `.local/plugin-packages`。随应用提供的长截图通过主程序发行包更新。
+
+插件图像结果通过宿主公共预览显示。预览使用与 F1 标注工具栏共享的背景绘制及 Fluent 图标；支持 1%–800% 缩放、Ctrl＋滚轮以鼠标位置缩放、加减键、Ctrl+0 原尺寸、适应宽度／窗口和拖动平移。长图只绘制可视源区域，不分配按缩放倍率放大的 Bitmap；复制、保存、贴图始终使用当前裁剪后的原始像素。此预览升级属于宿主，需运行新版主程序；长截图捕获操作窗仍由独立插件提供，SDK 无需变更。
+
+插件架构、分阶段验收与长截图算法见 [完整实施规划](PLUGINS_AND_SCROLL_CAPTURE.zh-CN.md)，SDK、安装与水印示例见 [插件开发说明](PLUGIN_DEVELOPMENT.zh-CN.md)。可运行以下验证；加 `-- --demo` 启动交互式编号正文测试窗口：
+
+```powershell
+dotnet run --project validation/SnipLite.PluginChecks/SnipLite.PluginChecks.csproj -c Release -p:CheckOutputSuffix=checks
+dotnet build examples/SnipLite.WatermarkPlugin/SnipLite.WatermarkPlugin.csproj -c Release
+```
 
 ## 代码导航
 

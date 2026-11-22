@@ -14,7 +14,7 @@
     <ApplicationIcon>../../logo/SnipLite.ico</ApplicationIcon>
     <AssemblyName>SnipLite</AssemblyName>
     <RootNamespace>SnipLite</RootNamespace>
-    <Version>0.3.14</Version>
+    <Version>0.3.15</Version>
     <Description>A Windows screenshot and pinning tool with local OCR and barcode recognition.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/GxDongV/SnipLite</RepositoryUrl>
@@ -24,8 +24,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../SnipLite.Plugin.Abstractions/SnipLite.Plugin.Abstractions.csproj" />
+    <ProjectReference Include="../SnipLite.ScrollCapture/SnipLite.ScrollCapture.csproj"
+                      ReferenceOutputAssembly="false" Private="false"
+                      UndefineProperties="RuntimeIdentifier;SelfContained;PublishSingleFile" />
     <EmbeddedResource Include="Localization/Resources/*.json" LogicalName="SnipLite.Localization.%(Filename).json" />
     <InternalsVisibleTo Include="SnipLite.SelfTest" />
+    <InternalsVisibleTo Include="SnipLite.PluginChecks" />
     <EmbeddedResource Include="../../logo/SnipLite.ico" LogicalName="SnipLite.AppIcon.ico" />
     <EmbeddedResource Include="Assets/PaperFold.wav" LogicalName="SnipLite.PaperFold.wav" />
     <PackageReference Include="Sdcb.SimdPaddleOCR" Version="2.0.0" />
@@ -39,5 +44,18 @@
     </EmbeddedResource>
   </ItemGroup>
 
-  <Import Project="../../packaging/windows/RuntimeSize.targets" />
+  <Target Name="CollectBundledPlugins" BeforeTargets="AssignTargetPaths" DependsOnTargets="ResolveProjectReferences">
+    <MSBuild Projects="../SnipLite.ScrollCapture/SnipLite.ScrollCapture.csproj" Targets="GetTargetPath"
+             Properties="Configuration=$(Configuration)" RemoveProperties="TargetFramework;RuntimeIdentifier;SelfContained;PublishSingleFile">
+      <Output TaskParameter="TargetOutputs" ItemName="_ScrollPluginAssembly" />
+    </MSBuild>
+    <ItemGroup>
+      <EmbeddedResource Include="@(_ScrollPluginAssembly)" LogicalName="SnipLite.Bundled.ScrollCapture.dll" />
+      <EmbeddedResource Include="@(_ScrollPluginAssembly->'%(RootDir)%(Directory)SnipLite.ScrollCapture.deps.json')" LogicalName="SnipLite.Bundled.ScrollCapture.deps.json" />
+      <EmbeddedResource Include="../SnipLite.ScrollCapture/plugin.json" LogicalName="SnipLite.Bundled.ScrollCapture.plugin.json" />
+      <EmbeddedResource Include="../SnipLite.ScrollCapture/assets/scroll-capture.png" LogicalName="SnipLite.Bundled.ScrollCapture.icon.png" />
+    </ItemGroup>
+  </Target>
+
+
 </Project>

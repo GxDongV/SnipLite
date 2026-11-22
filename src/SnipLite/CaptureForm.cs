@@ -121,6 +121,9 @@ internal sealed partial class CaptureForm : Form
     private bool MagnifierVisible => _showMagnifier || _dragMode >= 3 || _settings.AutoMagnifier && !_hasSelection && !_dragging;
 
     public event Action<CaptureResult?>? Done;
+    public event Action<string, Rectangle>? PluginRequested;
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public IReadOnlyList<(string Id, string Title, Image? Icon)> PluginButtons { get; set; } = Array.Empty<(string, string, Image?)>();
 
     public CaptureForm(Rectangle virtualScreen, CaptureMode mode, AppSettings settings, Rectangle? preset = null)
     {
@@ -310,10 +313,12 @@ internal sealed partial class CaptureForm : Form
                 _bar.CanUndo = _undo.Count > 0;
                 _bar.CanRedo = _redo.Count > 0;
                 _bar.AttachedPanelHeight = TranslationVisible ? _translationPanel!.Height : 0;
+                _bar.HiddenButtons = _settings.HiddenToolbarButtons;
+                _bar.PluginButtons = PluginButtons;
                 _bar.Layout(_selection, _virtual.Size);
                 LayoutTranslationPanel();
-                _barVisible = true;
-                _bar.Render(g);
+                _barVisible = _bar.Visible;
+                if (_barVisible) _bar.Render(g);
             }
             else
             {
@@ -506,6 +511,9 @@ internal sealed partial class CaptureForm : Form
 
     // ---------------------------------------------------------------- input
 
+    private string? ToolbarHitTest(Point point) => _barVisible ? _bar.HitTest(point) : null;
+    private bool ToolbarContains(Point point) => _barVisible && _bar.Bounds.Contains(point);
+
     protected override void OnMouseDown(MouseEventArgs e)
     {
         _crosshair?.Hide();
@@ -523,12 +531,12 @@ internal sealed partial class CaptureForm : Form
 
         if (_ocrMode || _recognitionBusy)
         {
-            var command = _bar.HitTest(p);
+            var command = ToolbarHitTest(p);
             if (command == "ocr") { ExitRecognition(); return; }
             if (command == "ocrtextcopy") { CopyOcrText(allIfUnselected: true); return; }
             if (command is not null) { ExitRecognition(); Command(command); return; }
             if (_recognitionBusy) return;
-            if (_bar.Bounds.Contains(p)) return;
+            if (ToolbarContains(p)) return;
             _ocrAnchor = _ocrDocument?.HitTest(new PointF(p.X - _ocrCrop.X, p.Y - _ocrCrop.Y), tolerance: 16 * Ui) ?? -1;
             _ocrEnd = _ocrAnchor;
             _bar.ResultCopied = false;
@@ -540,13 +548,13 @@ internal sealed partial class CaptureForm : Form
 
         if (_hasSelection)
         {
-            var id = _bar.HitTest(p);
+            var id = ToolbarHitTest(p);
             if (id != null)
             {
                 Command(id);
                 return;
             }
-            if (_bar.Bounds.Contains(p)) return;
+            if (ToolbarContains(p)) return;
 
             ClearQrResult();
             var onTextResize = false;
@@ -871,7 +879,7 @@ internal sealed partial class CaptureForm : Form
         // A double-click on the toolbar is the user cycling the line width (or
         // picking two colours in a row), not "copy this selection" — committing
         // here used to close the overlay right after the first real click.
-        if (_bar.HitTest(p) != null) return;
+        if (ToolbarHitTest(p) != null) return;
 
         // Same for the dimmed desktop outside the selection.
         if (!_selection.Contains(p)) return;
@@ -1077,6 +1085,13 @@ internal sealed partial class CaptureForm : Form
 
     private void Command(string id)
     {
+        if (PluginButtons.Any(p => p.Id == id))
+        {
+            var bounds = new Rectangle(_selection.X + _virtual.X, _selection.Y + _virtual.Y, _selection.Width, _selection.Height);
+            Cancel();
+            PluginRequested?.Invoke(id, bounds);
+            return;
+        }
         if (id == "colorcur")
         {
             using var picker = new ColorDialog { Color = _bar.Color, FullOpen = true, AnyColor = true };
@@ -1580,14 +1595,16 @@ internal sealed partial class CaptureForm : Form
 
     private void UpdateHint()
     {
-        var hint = _barVisible ? AnnotationBar.Hint(_bar.HitTest(_cursor), _ocrMode) : "";
-        if (_barVisible && _bar.HitTest(_cursor) == "pin")
+        var hint = AnnotationBar.Hint(ToolbarHitTest(_cursor), _ocrMode);
+        var plugin = PluginButtons.FirstOrDefault(p => p.Id == ToolbarHitTest(_cursor));
+        if (plugin.Id is not null) hint = plugin.Title;
+        if (ToolbarHitTest(_cursor) == "pin")
         {
             var binding = HotkeyDefinitions.Format(_settings.PinHotkey);
             hint = _settings.PinHotkey is Keys.None or (Keys.Control | Keys.T) ? UiText.T("贴图（Ctrl+T）") : Localization.LanguageService.Format("贴图（{0} / Ctrl+T）", binding);
         }
-        if (TranslationVisible && _bar.HitTest(_cursor) == "translate") hint = UiText.T("关闭截图翻译（Esc）");
-        if (_qrText is not null && _bar.MessageBounds.Contains(_cursor) && _bar.HitTest(_cursor) != "resultcopy") hint = _qrText;
+        if (TranslationVisible && ToolbarHitTest(_cursor) == "translate") hint = UiText.T("关闭截图翻译（Esc）");
+        if (_barVisible && _qrText is not null && _bar.MessageBounds.Contains(_cursor) && ToolbarHitTest(_cursor) != "resultcopy") hint = _qrText;
         if (_hoverHint == hint) return;
         _hoverHint = hint;
         _toolTip.SetToolTip(this, hint);
@@ -2158,15 +2175,15 @@ internal sealed partial class CaptureForm : Form
         var fullCrosshair = _crosshair is not null && !_hasSelection && !_dragging && !_finished && ContainsFocus;
         // Keep the familiar native small cross as a visible centre marker.
         if (fullCrosshair) _crosshair!.Move(_cursor); else _crosshair?.Hide();
-        if (_recognitionBusy) { Cursor = _bar.HitTest(_cursor) is not null ? Cursors.Hand : Cursors.AppStarting; return; }
+        if (_recognitionBusy) { Cursor = ToolbarHitTest(_cursor) is not null ? Cursors.Hand : Cursors.AppStarting; return; }
         if (_ocrMode)
         {
-            Cursor = _bar.Bounds.Contains(_cursor) ? Cursors.Hand
+            Cursor = ToolbarContains(_cursor) ? Cursors.Hand
                 : _ocrDocument?.HitTest(new PointF(_cursor.X - _ocrCrop.X, _cursor.Y - _ocrCrop.Y), tolerance: 16 * Ui) >= 0
                     ? Cursors.IBeam : Cursors.Default;
             return;
         }
-        if (_hasSelection && _barVisible && _bar.Bounds.Contains(_cursor))
+        if (_hasSelection && ToolbarContains(_cursor))
         {
             Cursor = Cursors.Hand;
             return;
