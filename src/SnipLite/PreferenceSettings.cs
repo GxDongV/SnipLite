@@ -53,6 +53,7 @@ internal sealed partial class AppSettings
     public bool MiddleClickExit { get; set; } = true;
     public CaptureAction EnterAction { get; set; } = CaptureAction.Copy;
     public bool EnterExit { get; set; } = true;
+    public bool CopyAndExitAfterCapture { get; set; }
     public bool PinShadow { get; set; } = true;
     public int PinShadowColor { get; set; } = Color.Black.ToArgb();
     public bool PinMenuShortcuts { get; set; } = true;

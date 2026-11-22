@@ -7,7 +7,7 @@ internal static class PluginInstaller
 {
     internal const long MaxBytes = 64 * 1024 * 1024;
 
-    public static string Import(string package, string pluginDirectory, string? bundledId = null)
+    public static string Import(string package, string pluginDirectory, Func<PluginManifest, string, string>? install = null)
     {
         Directory.CreateDirectory(pluginDirectory);
         var staging = Path.Combine(pluginDirectory, ".install-" + Guid.NewGuid().ToString("N"));
@@ -39,24 +39,23 @@ internal static class PluginInstaller
             var manifests = Directory.GetFiles(staging, "plugin.json", SearchOption.AllDirectories);
             if (manifests.Length != 1) throw new InvalidDataException(UiText.T("插件包必须包含一个 plugin.json。"));
             var manifest = PluginManifest.Read(manifests[0]);
-            if (manifest.Id.Equals(bundledId, StringComparison.OrdinalIgnoreCase))
-                throw new IOException(UiText.T("此插件随 SnipLite 提供，请通过更新主程序升级。"));
+            var source = Path.GetDirectoryName(manifests[0])!;
+            if (install is not null) return install(manifest, source);
             var destination = Path.Combine(Path.GetFullPath(pluginDirectory), manifest.Id);
             if (Directory.Exists(destination)) throw new IOException(UiText.T("该插件已安装。更新前请退出软件并移走旧插件目录。"));
-            var source = Path.GetDirectoryName(manifests[0])!;
             Directory.Move(source, destination);
             return destination;
         }
         finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
     }
 
-    public static async Task<string> DownloadAsync(Uri address, string pluginDirectory, CancellationToken token, string? bundledId = null)
+    public static async Task<string> DownloadAsync(Uri address, string pluginDirectory, CancellationToken token, Func<PluginManifest, string, string>? install = null)
     {
         using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
-        return await DownloadAsync(address, pluginDirectory, token, client, bundledId);
+        return await DownloadAsync(address, pluginDirectory, token, client, install);
     }
 
-    internal static async Task<string> DownloadAsync(Uri address, string pluginDirectory, CancellationToken token, HttpClient client, string? bundledId = null)
+    internal static async Task<string> DownloadAsync(Uri address, string pluginDirectory, CancellationToken token, HttpClient client, Func<PluginManifest, string, string>? install = null)
     {
         if (!address.IsAbsoluteUri || address.Scheme != Uri.UriSchemeHttps || address.UserInfo.Length > 0)
             throw new ArgumentException(UiText.T("请输入 HTTPS 插件包下载地址。"));
@@ -80,7 +79,7 @@ internal static class PluginInstaller
                 }
             }
             token.ThrowIfCancellationRequested();
-            return Import(temporary, pluginDirectory, bundledId);
+            return Import(temporary, pluginDirectory, install);
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }

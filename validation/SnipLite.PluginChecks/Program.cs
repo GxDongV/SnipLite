@@ -27,15 +27,37 @@ internal static class Program
             IconAssets();
             Plugins().GetAwaiter().GetResult();
             BundledPlugin();
+            PluginPackageLifecycle();
             InstallerChecks().GetAwaiter().GetResult();
             CaptureLifecycle();
             ScrollTargetRecovery();
             ScrollUi();
             PreviewUi();
+            TextCaret();
             PreferencesIntegration();
             Console.WriteLine($"PASS: {_checks} plugin and scrolling-capture checks."); return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
+    }
+
+    private static void TextCaret()
+    {
+        foreach (var (scale, width, edge) in new[] { (1f, 2, 1), (1.5f, 3, 2), (2f, 4, 2) })
+        {
+            using var bitmap = new Bitmap(32, 28);
+            using var graphics = Graphics.FromImage(bitmap);
+            graphics.Clear(Color.Black);
+            var center = new Rectangle(16, 4, 1, 20);
+            TextEditLayout.DrawCaret(graphics, center, Color.DodgerBlue, scale);
+            var left = center.X - width / 2;
+            var bands = Enumerable.Range(0, bitmap.Width).Select(x =>
+                x >= left && x < left + width ? Color.DodgerBlue.ToArgb()
+                : x >= left - edge && x < left + width + edge ? Color.White.ToArgb()
+                : Color.Black.ToArgb()).ToArray();
+            Check(Enumerable.Range(center.Top, center.Height).All(y =>
+                bands.Select((color, x) => bitmap.GetPixel(x, y).ToArgb() == color).All(matches => matches)),
+                $"text caret is a straight {width}-pixel stem at {scale:P0} scaling");
+        }
     }
 
     private static void IconAssets()
@@ -617,7 +639,8 @@ internal static class Program
         Check(JsonSerializer.Deserialize<AppSettings>("{\"HiddenToolbarButtons\":[\"rect\"]}")!.HiddenToolbarButtons.Contains("rect"), "individual visibility preference round-trips");
         foreach (var language in SnipLite.Localization.LanguageService.Languages)
         {
-            using var form = new PreferencesForm(new AppSettings { DisplayLanguage = language.Code }, PreferencesForm.PluginsTab, manager)
+            var settings = new AppSettings { DisplayLanguage = language.Code };
+            using var form = new PreferencesForm(settings, PreferencesForm.PluginsTab, manager)
             { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000) };
             form.Show(); Application.DoEvents();
             var toggle = Descendants(form).OfType<FluentToggle>().Single();
@@ -647,6 +670,31 @@ internal static class Program
                     var tabs = (List<(Rectangle Rect, int Index)>)typeof(PreferencesForm).GetField("_tabRects", flags)!.GetValue(form)!;
                     Check(tabs.Count == 9 && tabs.All(t => t.Rect.Bottom < form.ClientSize.Height - (int)(34 * scale)), "all nine navigation tabs fit");
                     Check(!tabs.Any(a => tabs.Any(b => a.Index != b.Index && a.Rect.IntersectsWith(b.Rect))), "plugin navigation does not overlap");
+                    if (tab == 0 && language.Code == "zh-CN")
+                    {
+                        var preview = controls.OfType<ToolbarLayoutPreview>().Single();
+                        var toolbar = (AnnotationBar)typeof(ToolbarLayoutPreview).GetField("_bar", flags)!.GetValue(preview)!;
+                        var buttonBounds = AnnotationBar.BuiltInButtons.Select(button => button.Id)
+                            .Concat(manager.Commands.Select(command => command.Id)).Select(toolbar.ItemBounds).ToArray();
+                        Check(buttonBounds.All(bounds => !bounds.IsEmpty && bounds.Top == buttonBounds[0].Top),
+                            "toolbar preview keeps built-in and plugin buttons on one row at every window width");
+
+                        var selected = controls.OfType<FluentButton>().Single(button => button.Selected);
+                        using var tabImage = new Bitmap(selected.Width, selected.Height);
+                        selected.DrawToBitmap(tabImage, new Rectangle(Point.Empty, tabImage.Size));
+                        var accent = AppTheme.Current.Accent.ToArgb();
+                        Check(tabImage.GetPixel(tabImage.Width / 2, 0).ToArgb() == accent
+                            && tabImage.GetPixel(tabImage.Width / 2, tabImage.Height - 1).ToArgb() == accent
+                            && tabImage.GetPixel(0, tabImage.Height / 2).ToArgb() == accent
+                            && tabImage.GetPixel(tabImage.Width - 1, tabImage.Height / 2).ToArgb() == accent,
+                            "the selected subtab has a crisp accent border on all four sides");
+                        if (size.Width < 1000 * scale)
+                        {
+                            using var narrow = new Bitmap(form.Width, form.Height);
+                            form.DrawToBitmap(narrow, new Rectangle(Point.Empty, narrow.Size));
+                            narrow.Save(Path.Combine(directory, "preferences-layout-narrow.png"));
+                        }
+                    }
                 }
                 if (language.Code == "zh-CN")
                 {
@@ -655,8 +703,27 @@ internal static class Program
                     image.Save(Path.Combine(directory, $"preferences-{tab}.png"));
                     if (tab == 0)
                     {
+                        var preview = Descendants(form).OfType<ToolbarLayoutPreview>().Single();
+                        var annotationBar = (AnnotationBar)typeof(ToolbarLayoutPreview).GetField("_bar", flags)!.GetValue(preview)!;
+                        var command = manager.Commands.Single();
+                        Check(ReferenceEquals(annotationBar.PluginButtons.Single().Icon, command.Icon), "toolbar preview uses the plugin's artwork");
+                        Check(!annotationBar.ItemBounds(command.Id).IsEmpty && !annotationBar.ItemBounds("rect").IsEmpty, "toolbar preview initially shows plugin and built-in buttons");
+                        var previewLocation = preview.PointToScreen(Point.Empty);
                         var page = (Panel)typeof(PreferencesForm).GetField("_page", flags)!.GetValue(form)!;
                         page.AutoScrollPosition = new Point(0, 10000); Application.DoEvents();
+                        Check(page.AutoScrollPosition.Y < 0 && preview.PointToScreen(Point.Empty) == previewLocation, "toolbar preview stays visible when settings scroll");
+
+                        settings.HiddenToolbarButtons = new HashSet<string> { command.Id };
+                        preview.RefreshToolbar();
+                        Check(annotationBar.ItemBounds(command.Id).IsEmpty && !annotationBar.ItemBounds("rect").IsEmpty, "toolbar preview hides the selected plugin button");
+                        settings.HiddenToolbarButtons = AnnotationBar.BuiltInButtons.Select(button => button.Id).Append(command.Id).ToHashSet();
+                        preview.RefreshToolbar();
+                        Check(!annotationBar.Visible, "toolbar preview handles all buttons hidden");
+                        settings.HiddenToolbarButtons = new HashSet<string> { "rect" };
+                        preview.RefreshToolbar();
+                        Check(annotationBar.ItemBounds("rect").IsEmpty && !annotationBar.ItemBounds(command.Id).IsEmpty, "toolbar preview hides a built-in button and restores the plugin button");
+                        settings.HiddenToolbarButtons.Clear();
+                        preview.RefreshToolbar();
                         using var pluginButtons = new Bitmap(form.Width, form.Height);
                         form.DrawToBitmap(pluginButtons, new Rectangle(Point.Empty, form.Size));
                         pluginButtons.Save(Path.Combine(directory, "preferences-plugin-buttons.png"));
@@ -664,6 +731,7 @@ internal static class Program
                 }
             }
         }
+        PluginHotkeyPreferences(manager, official, preferences);
         File.Delete(preferences);
         var previewBar = new AnnotationBar
         {
@@ -698,6 +766,70 @@ internal static class Program
         Check(bar.MainBounds.Width < 800 && bar.MainBounds.Height > 44, "many plugin buttons wrap within screen");
         var host = new PluginHostServices(new AppSettings(), (_, _) => { }) { PendingSelection = selection };
         Check(host.SelectRegionAsync(CancellationToken.None).Result == selection && host.PendingSelection is null, "F1 plugin invocation consumes existing region once");
+    }
+
+    private static void PluginHotkeyPreferences(PluginManager manager, PluginRecord plugin, string preferences)
+    {
+        var command = manager.Commands.Single();
+        var title = command.Title.Get("zh-CN");
+        var original = Keys.Control | Keys.Shift | Keys.F23;
+        var replacement = Keys.Control | Keys.Shift | Keys.F24;
+        manager.SetHotkey(command.Id, original);
+        using var form = new PreferencesForm(new AppSettings { DisplayLanguage = "zh-CN" }, PreferencesForm.ControlTab, manager)
+        { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000) };
+        form.HotkeyAvailable = binding => binding != Keys.F22;
+        form.Show();
+        Application.DoEvents();
+
+        FluentSettingRow Row(string label) => Descendants(form).OfType<FluentSettingRow>()
+            .Single(row => row.Controls.OfType<Label>().Any(control => control.Text == label));
+        Check(Row(title).Controls.OfType<Label>().Any(label => label.Text == HotkeyDefinitions.Format(original)), "existing plugin binding is shown in global shortcuts");
+        Check(Row(title).Top > Row(UiText.T(HotkeyDefinitions.Items.Last().Label)).Top, "plugin shortcuts follow built-in rows");
+
+        var processKey = typeof(HotkeyBox).GetMethod("ProcessCmdKey", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        void Edit(string label, Keys binding, string? validationMessage = null)
+        {
+            Exception? error = null;
+            form.BeginInvoke(() =>
+            {
+                var dialog = Application.OpenForms.Cast<Form>().Single(window => window.Text == label && Descendants(window).OfType<HotkeyBox>().Any());
+                try
+                {
+                    var box = Descendants(dialog).OfType<HotkeyBox>().Single();
+                    processKey.Invoke(box, new object[] { new Message(), binding });
+                    Descendants(dialog).OfType<FluentButton>().Single(button => button.Text == UiText.T("确认")).PerformClick();
+                    if (validationMessage is not null)
+                    {
+                        Check(dialog.DialogResult == DialogResult.None, "a conflicting shortcut leaves the editor open");
+                        Check(Descendants(dialog).OfType<Label>().Any(status => status.Text == UiText.T(validationMessage)), "editor explains the shortcut conflict");
+                    }
+                    else Check(dialog.DialogResult == DialogResult.OK, "a valid shortcut closes the editor");
+                }
+                catch (Exception ex) { error = ex; }
+                finally { if (dialog.DialogResult == DialogResult.None) dialog.Close(); }
+            });
+            Row(label).Controls.OfType<FluentButton>().Single().PerformClick();
+            if (error is not null) throw new InvalidOperationException("Plugin shortcut editor failed.", error);
+            Application.DoEvents();
+        }
+
+        Edit(title, Keys.F1, "与其他功能重复，请重新输入。");
+        Edit(UiText.T("截屏"), original, "与其他功能重复，请重新输入。");
+        Edit(title, Keys.F22, "组合键被占用或由系统保留，请重新输入。");
+        Check(manager.Hotkey(command.Id) == original, "shortcut conflicts preserve the previous plugin binding");
+        Edit(title, replacement);
+        using (var reopened = new PluginManager(new FakeHost(), () => true, preferences))
+            Check(reopened.Hotkey(command.Id) == replacement, "saving from preferences persists the plugin binding");
+        Check(Row(title).Controls.OfType<Label>().Any(label => label.Text == HotkeyDefinitions.Format(replacement)), "saved plugin hotkey updates its settings row");
+        Edit(title, Keys.Delete);
+        Check(manager.Hotkey(command.Id) == Keys.None, "Delete clears the plugin shortcut");
+
+        manager.SetEnabled(plugin, false);
+        Application.DoEvents();
+        Check(!Descendants(form).OfType<Label>().Any(label => label.Text == title), "disabling the plugin removes its shortcut row");
+        manager.SetEnabled(plugin, true);
+        Application.DoEvents();
+        Check(Row(title).Controls.OfType<Label>().Any(label => label.Text == HotkeyDefinitions.Format(Keys.None)), "enabling the plugin adds its shortcut row");
     }
 
     private static void BundledPlugin()
@@ -736,6 +868,87 @@ internal static class Program
             "altered bundle cache is replaced by resources from the host");
     }
 
+    private static void PluginPackageLifecycle()
+    {
+        var directory = Path.Combine(Path.GetDirectoryName(ScrollPluginRoot())!, "updates-checks", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var cache = Path.Combine(directory, "bundled");
+        var plugins = Path.Combine(directory, "plugins");
+        var settings = Path.Combine(directory, "plugins.json");
+        var host = new FakeHost();
+        PluginManager Open()
+        {
+            var manager = new PluginManager(host, () => true, settings, plugins);
+            manager.DiscoverBundled(cache);
+            manager.DiscoverInstalled();
+            return manager;
+        }
+        string Package(string id, string version, string? entryType = null)
+        {
+            var path = Path.Combine(directory, $"{id}-{version}{(entryType is null ? "" : "-broken")}.snipplugin");
+            using var zip = System.IO.Compression.ZipFile.Open(path, System.IO.Compression.ZipArchiveMode.Create);
+            var original = PluginManifest.Read(Path.Combine(ScrollPluginDirectory(), "plugin.json"));
+            original.Id = id;
+            original.Version = version;
+            if (entryType is not null) original.EntryType = entryType;
+            using (var writer = new StreamWriter(zip.CreateEntry("plugin.json").Open()))
+                writer.Write(System.Text.Json.JsonSerializer.Serialize(original));
+            foreach (var name in new[] { original.EntryAssembly, "SnipLite.ScrollCapture.deps.json", original.Icon })
+                System.IO.Compression.ZipFileExtensions.CreateEntryFromFile(zip, Path.Combine(ScrollPluginDirectory(), name), name);
+            return path;
+        }
+
+        var scrollId = BundledScrollPlugin.Id;
+        var externalId = "fixtures.update";
+        var binding = Keys.Control | Keys.Shift | Keys.F9;
+        var update = Package(scrollId, "99.0.0");
+        using (var manager = Open())
+        {
+            var builtIn = manager.Records.Single();
+            try { manager.ImportPackage(Package(scrollId, builtIn.Manifest!.Version)); throw new Exception("Same version accepted."); }
+            catch (IOException) { _checks++; }
+            manager.SetHotkey(scrollId + "/capture", binding);
+            manager.ImportPackage(update);
+            Check(manager.HasPendingChanges && builtIn.Bundled && manager.Commands.Count == 1,
+                "updates leave the active DLL and command in place until restart");
+            try { manager.ImportPackage(Package(scrollId, "98.0.0")); throw new Exception("Downgrade of queued update accepted."); }
+            catch (IOException) { _checks++; }
+        }
+        using (var manager = Open())
+        {
+            var active = manager.Records.Single();
+            Check(active.Manifest!.Version == "99.0.0" && !active.Bundled && active.Enabled &&
+                manager.Hotkey(scrollId + "/capture") == binding, "bundled update takes over once and inherits defaults and hotkey");
+            manager.ImportPackage(Package(scrollId, "100.0.0", "Missing.EntryType"));
+        }
+        using (var manager = Open())
+        {
+            var active = manager.Records.Single();
+            Check(active.Bundled && manager.Commands.Count == 1 && manager.CanUninstall(active),
+                "a broken update falls back to a usable bundled plugin and can be removed");
+            manager.Uninstall(active);
+            manager.ImportPackage(Package(externalId, "1.0.0"));
+            var imported = manager.Records.Single(record => record.Manifest?.Id == externalId);
+            Check(!imported.Enabled, "new third-party imports still require opt-in");
+            manager.SetEnabled(imported, true);
+            manager.SetHotkey(externalId + "/capture", binding);
+            manager.ImportPackage(Package(externalId, "2.0.0"));
+            Check(imported.Manifest!.Version == "1.0.0" && imported.RestartPending,
+                "third-party update can be queued while its old DLL is loaded");
+        }
+        using (var manager = Open())
+        {
+            var active = manager.Records.Single(record => record.Manifest?.Id == externalId);
+            Check(manager.Records.Single(record => record.IsScrollCapture).Bundled && active.Manifest!.Version == "2.0.0"
+                && active.Enabled && manager.Hotkey(externalId + "/capture") == binding,
+                "restart restores bundled version and loads updated third-party plugin with its settings");
+            manager.Uninstall(active);
+        }
+        using (var manager = Open())
+            Check(manager.Records.Count == 1 && manager.Records.Single().Bundled &&
+                manager.Hotkey(externalId + "/capture") == binding, "uninstall removes the third-party entry while keeping preferences");
+    }
+
     private static async Task InstallerChecks()
     {
         var temporary = Path.Combine(Path.GetDirectoryName(ScrollPluginRoot())!, "installer-checks", Guid.NewGuid().ToString("N"));
@@ -744,8 +957,6 @@ internal static class Program
         {
             var package = Path.Combine(temporary, "scroll.snipplugin");
             System.IO.Compression.ZipFile.CreateFromDirectory(ScrollPluginDirectory(), package);
-            try { PluginInstaller.Import(package, Path.Combine(temporary, "reserved"), BundledScrollPlugin.Id); throw new Exception("Bundled plugin override accepted."); }
-            catch (IOException) { _checks++; }
             var installedRoot = Path.Combine(temporary, "installed");
             using var manager = new PluginManager(new FakeHost(), () => true, Path.Combine(temporary, "settings.json"));
             manager.Discover(installedRoot); Check(manager.Records.Count == 0, "clean application has no scrolling plugin installed");
@@ -950,7 +1161,7 @@ internal sealed class ScrollDemo : Form
             view.AutoScrollPosition = Point.Empty; view.Refresh();
             await _manager.ExecuteAsync("sniplite.scroll-capture/capture");
         };
-        manage.Click += (_, _) => new PluginManagementForm(_manager, host, (_, _) => true).Show();
+        manage.Click += (_, _) => new PreferencesForm(new AppSettings(), PreferencesForm.PluginsTab, _manager).Show(this);
         FormClosed += (_, _) => { _manager.Dispose(); picture.Image = null; _document.Dispose(); };
     }
 }

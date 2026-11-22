@@ -34,17 +34,20 @@ internal sealed partial class PreferencesForm : Form
 
     private readonly string[] _tabs = { "常规", "界面", "截屏", "贴图", "输出", "控制", "更新", "关于", "插件" };
     internal const int PluginsTab = 8;
+    internal const int ControlTab = 5;
     private static readonly int[] NavigationOrder = { 0, 1, 2, 3, 4, 5, PluginsTab, 6, 7 };
     private readonly List<(Rectangle Rect, int Index)> _tabRects = new();
 
     private readonly AppSettings _s;
+    private Font? _interfaceFont;
     private readonly Plugins.PluginManager? _plugins;
-    public event Action? PluginManagementRequested;
+    public event Action? PluginRestartRequested;
     private sealed class BufferedPage : Panel
     {
         public BufferedPage() { DoubleBuffered = true; ResizeRedraw = true; }
     }
     private readonly Panel _page = new BufferedPage();
+    private readonly Panel _layoutHeader = new BufferedPage { Visible = false };
     private readonly Button _reset = new FluentButton();
 
     private float _ui = 1f;
@@ -93,6 +96,7 @@ internal sealed partial class PreferencesForm : Form
         _reset.Click += (_, _) => ResetAll();
 
         Controls.Add(_page);
+        Controls.Add(_layoutHeader);
         Controls.Add(_reset);
         AppTheme.Changed += ApplyTheme;
         Localization.LanguageService.Changed += RefreshLanguage;
@@ -188,7 +192,16 @@ internal sealed partial class PreferencesForm : Form
 
     private void PlaceChrome()
     {
-        _page.Bounds = PageRect();
+        var page = PageRect();
+        _layoutHeader.Visible = IsLayoutPage;
+        if (IsLayoutPage)
+        {
+            var height = Px(PagePad) * 2 + Px(SubPageTabsH) + Px(CaptionH) + Px(ToolbarPreviewH);
+            _layoutHeader.Bounds = new Rectangle(page.X, page.Y, page.Width, height);
+            page.Y += height;
+            page.Height -= height;
+        }
+        _page.Bounds = page;
 
         var footer = ClientSize.Height - Px(FooterH);
         _reset.Bounds = new Rectangle(
@@ -370,7 +383,21 @@ internal sealed partial class PreferencesForm : Form
     {
         if (!_ready || IsDisposed || !IsHandleCreated) return;
         // Enable switches can raise Changed while their CheckedChanged event is still running.
-        BeginInvoke(() => { if (!IsDisposed && (_selected == PluginsTab || _selected == 0 && _subPages[0] == 1)) ShowTab(_selected); });
+        BeginInvoke(() =>
+        {
+            if (IsDisposed) return;
+            if (_selected == PluginsTab || IsLayoutPage) ShowTab(_selected);
+            if (!IsHotkeysPage) return;
+            var commands = _plugins?.Commands ?? [];
+            if (_pluginHotkeyIds.SequenceEqual(commands.Select(command => command.Id)))
+            {
+                RefreshHotkeyRows();
+                return;
+            }
+            var scroll = _page.AutoScrollPosition;
+            ShowTab(_selected);
+            _page.AutoScrollPosition = new Point(-scroll.X, -scroll.Y);
+        });
     }
 
     // ----------------------------------------------------------------- pages
@@ -382,12 +409,17 @@ internal sealed partial class PreferencesForm : Form
         _selected = index;
         _tabRects.Clear();
         _sectionProperties.Clear();
+        _hotkeyRowUpdates.Clear();
         _page.AutoScrollPosition = Point.Empty;
 
         _page.SuspendLayout();
+        _layoutHeader.SuspendLayout();
 
         while (_page.Controls.Count > 0)
             _page.Controls[0].Dispose();
+        while (_layoutHeader.Controls.Count > 0)
+            _layoutHeader.Controls[0].Dispose();
+        PlaceChrome();
 
         _y = Px(PagePad);
         _labelX = Px(PagePad);
@@ -404,7 +436,7 @@ internal sealed partial class PreferencesForm : Form
             case 2: BuildCapture(); break;
             case 3: BuildPin(); break;
             case 4: BuildOutput(); break;
-            case 5: BuildControl(); break;
+            case ControlTab: BuildControl(); break;
             case 6: BuildUpdate(); break;
             case PluginsTab: PluginsPage(); break;
             default: BuildAbout(); break;
@@ -412,8 +444,14 @@ internal sealed partial class PreferencesForm : Form
 
         _page.AutoScrollMinSize = new Size(0, _y + Px(PagePad));
         _page.ResumeLayout();
+        _layoutHeader.ResumeLayout();
         UiText.Apply(_page, _s.DisplayLanguage);
         AppTheme.Apply(_page);
+        if (IsLayoutPage)
+        {
+            UiText.Apply(_layoutHeader, _s.DisplayLanguage);
+            AppTheme.Apply(_layoutHeader);
+        }
         _reset.Visible = index <= 5;
         ActiveControl = null;
         Invalidate();
@@ -518,9 +556,8 @@ internal sealed partial class PreferencesForm : Form
     // ------------------------------------------------------------- sections
 
     /// <summary>Width of the page's content column.</summary>
-    // Keep the two-column layout readable in narrow windows; AutoScroll exposes
-    // the remaining content instead of squeezing fields and trailing buttons.
-    private int ContentWidth() => Math.Max(PageRect().Width, Px(WinW - SidebarW - 44))
+    // Keep two-column forms readable. Layout's single-column switches fit the viewport.
+    private int ContentWidth() => (IsLayoutPage ? PageRect().Width : Math.Max(PageRect().Width, Px(WinW - SidebarW - 44)))
         - Px(PagePad * 2) - SystemInformation.VerticalScrollBarWidth;
 
     /// <summary>Width left for a field that starts in the control column.</summary>
@@ -594,13 +631,15 @@ internal sealed partial class PreferencesForm : Form
         Persist();
         ShowTab(_selected);
     }
-    private FluentSettingRow Row(string label, params Control[] controls)
+    private FluentSettingRow Row(string label, params Control[] controls) => SettingRow(label, null, null, controls);
+
+    private FluentSettingRow SettingRow(string label, string? iconId, Image? icon, params Control[] controls)
     {
         var height = Math.Max(Px(RowH), controls.Select(c => c.Height + Px(22)).DefaultIfEmpty(0).Max());
         var card = NewSettingRow(height);
         if (label.Length > 0)
         {
-            AddRowIcon(card, label);
+            AddRowIcon(card, label, iconId, icon);
             card.Controls.Add(new Label { Text = label, AutoSize = false, AutoEllipsis = true, Bounds = new Rectangle(Px(48), Px(6), Px(LabelW - 52), height - Px(12)),
                 TextAlign = ContentAlignment.MiddleLeft, ForeColor = Ink, BackColor = Color.Transparent });
         }
@@ -630,11 +669,13 @@ internal sealed partial class PreferencesForm : Form
 
     private void AddRowIcon(Control row, string label, string? iconId = null, Image? pluginIcon = null)
     {
+        iconId ??= FluentIcons.ForLabel(label);
+        if (iconId is null && pluginIcon is null) return;
         var icon = new Panel { Bounds = new Rectangle(Px(15), (row.Height - Px(20)) / 2, Px(20), Px(20)), BackColor = AppTheme.Current.Card };
         icon.Paint += (_, e) =>
         {
             if (pluginIcon is not null) Plugins.PluginIcon.Draw(e.Graphics, pluginIcon, icon.ClientRectangle, Ink);
-            else FluentIcons.Draw(e.Graphics, iconId ?? FluentIcons.ForLabel(label), icon.ClientRectangle, Ink);
+            else if (iconId is not null) FluentIcons.Draw(e.Graphics, iconId, icon.ClientRectangle, Ink);
         };
         row.Controls.Add(icon);
     }

@@ -336,7 +336,7 @@ internal sealed class PinForm : Form
     }
     private void Copy()
     {
-        try { Services.CopyImage(_image, _settings.PinBitmapClipboard); Toast.Show(UiText.T("图像已复制")); }
+        try { Services.CopyImage(_image, _settings.PinBitmapClipboard, _settings); Toast.Show(UiText.T("图像已复制")); }
         catch (Exception ex) { Toast.Error(UiText.T("复制失败：") + ex.Message); }
     }
     private void SaveAs()
@@ -392,7 +392,7 @@ internal sealed class PinForm : Form
         menu.Items.Add(Item("识别文字", () => _ = RecognizeText())); menu.Items.Add(Item("识别二维码", ScanQr));
         menu.Items.Add(new ToolStripSeparator()); menu.Items.Add(Item("原始大小", Reset, "Ctrl+0"));
         menu.Items.Add(Item("快速缩略图", ToggleThumbnail)); menu.Items.Add(Item("鼠标穿透开关", ToggleMouseThrough));
-        var groups = new ToolStripMenuItem(UiText.T("移动到分组"));
+        var groups = SnipMenu.Item("移动到分组");
         for (var i = 1; i <= 3; i++) { var group = i; groups.DropDownItems.Add(Item(Localization.LanguageService.Format("分组 {0}", group), () => { _pinGroup = group; if (_pinGroup != _group) Hide(); })); }
         menu.Items.Add(groups); menu.Items.Add(Item("关闭", Close, "Esc")); menu.Items.Add(Item("关闭全部贴图", CloseAll));
         menu.Items.Add(Item("隐藏 / 显示所有贴图", ToggleAll)); menu.Items.Add(Item("恢复 100% 不透明度", () => { _opacity = 1; Opacity = 1; }));

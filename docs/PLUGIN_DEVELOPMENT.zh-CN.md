@@ -1,6 +1,6 @@
 # SnipLite 插件接入规范（API v1）
 
-适用于 SnipLite v0.3.15 及后续兼容版本。插件为 .NET 10 Windows 类库，通过 [公共 SDK](../src/SnipLite.Plugin.Abstractions/PluginContracts.cs) 注册能力。插件代码在 SnipLite 进程内运行，拥有同一 Windows 用户权限。仅安装并启用来源可信的插件。
+本文描述当前开发版本的插件接入流程。插件为 .NET 10 Windows 类库，通过 [公共 SDK](../src/SnipLite.Plugin.Abstractions/PluginContracts.cs) 注册能力。插件代码在 SnipLite 进程内运行，拥有同一 Windows 用户权限。仅安装并启用来源可信的插件。
 
 ## 1. 创建项目
 
@@ -75,17 +75,17 @@ F1 选区中启动插件时，宿主把该物理选区交给插件的下一次 `
 ./scripts/package-plugin.ps1 -Project examples/SnipLite.WatermarkPlugin/SnipLite.WatermarkPlugin.csproj
 ```
 
-把资源设置为 `CopyToOutputDirectory="PreserveNewest"`。脚本将发布文件打包到 `.local/plugin-packages`，运行时 SDK 由宿主提供。可在「首选项 → 插件」导入 ZIP 或 `.snipplugin`，也可填入 HTTPS 包直链。导入后在同一页手动启用。插件目录为 `%LOCALAPPDATA%\SnipLite\Plugins`。更新外部插件时先退出宿主，把旧目录移出该目录，再启动宿主并导入新版。保持 ID 稳定可继承启停记录及快捷键。
+把资源设置为 `CopyToOutputDirectory="PreserveNewest"`。脚本将发布文件打包到 `.local/plugin-packages`，运行时 SDK 由宿主提供。可在「首选项 → 插件」导入 ZIP 或 `.snipplugin`，也可填入 HTTPS 包直链。首次导入的第三方插件需要手动启用。更新时使用相同 ID 和更高的 `version`，直接导入新包，再点击「立即重启」使其生效。同一页可卸载第三方插件。重启后移除插件，保留用户设置、数据和快捷键。
 
-安装器先解压并校验，再移入插件目录。包最多 512 个条目，下载和解压大小各限 64 MiB。拒绝符号链接、重复路径、路径越界和覆盖现有安装。
+安装器先解压并校验，再把包保存到 `%LOCALAPPDATA%\SnipLite\Plugins\.packages` 下独立的版本目录，并记录下次启动要加载的包。当前正在使用的 DLL 继续工作到重启。包最多 512 个条目，下载和解压大小各限 64 MiB。拒绝符号链接、重复路径、路径越界以及相同版本或降级导入。
 
-**随程序提供的插件。** v0.3.15 的单文件版、安装版、解压版均包含长截图插件 `sniplite.scroll-capture`。主程序从自身资源取出插件清单、DLL、依赖描述和图标，再经公共插件加载器加载。该插件首次使用默认启用，保留用户明确的停用选择。已有手动安装的同 ID 副本会被跳过。长截图的更新随主程序发放，其他插件继续通过插件页导入和更新。
+**随程序提供的插件。** 从 v0.3.15 起，单文件版、安装版和解压版均自带长截图插件 `sniplite.scroll-capture`。宿主通过公共插件加载器加载，默认启用，并保留明确的停用选择。通过新版插件页导入更高版本后，重启时优先加载该版本。「恢复内置版本」可以移除独立更新包。如独立包加载失败，或主程序随附的版本更新，宿主会使用随附版本。
 
 API v1 的现有接口保持兼容。新增能力应使用可选接口，破坏性契约变更使用新的 SDK 主版本。
 
 ## 6. 接入验收
 
-用干净的用户配置导入、启用，检查托盘和 F1 工具栏入口、图标、关闭和取消。重启核对设置和快捷键，测试处理器的输入生命周期，以及预览中的复制、保存和贴图。仓库回归可用以下命令运行。
+用干净的用户配置导入、启用，检查托盘和 F1 工具栏入口、图标、关闭和取消。在「首选项 → 控制 → 全局快捷键」底部设置插件命令的快捷键，重启后核对绑定。测试处理器的输入生命周期，以及预览中的复制、保存和贴图。仓库回归可用以下命令运行。
 
 ```powershell
 dotnet run --project validation/SnipLite.PluginChecks/SnipLite.PluginChecks.csproj -c Release

@@ -830,6 +830,7 @@ internal sealed partial class CaptureForm : Form
             }
 
             Invalidate();
+            if (TryCopyAndExitAfterSelection()) return;
             if (_hasSelection && _settings.CopyAfterCapture && !_ocrCapture && !_qrCaptureOnly && !_translationCapture)
                 CopySelectionToClipboard();
             if (_translationCapture && _hasSelection && !TranslationVisible) _ = TranslateSelectionAsync();
@@ -849,6 +850,7 @@ internal sealed partial class CaptureForm : Form
             _dragMode = 0;
             Capture = false;
             Invalidate();
+            if (TryCopyAndExitAfterSelection()) return;
             if (_hasSelection && _settings.CopyAfterCapture && !_ocrCapture && !_qrCaptureOnly && !_translationCapture)
                 CopySelectionToClipboard();
             if (_translationCapture && _hasSelection && !TranslationVisible) _ = TranslateSelectionAsync();
@@ -1690,6 +1692,16 @@ internal sealed partial class CaptureForm : Form
         catch (Exception ex) { AppLog.Write("自动复制截图失败", ex); Toast.Error(UiText.T("自动复制截图失败：") + ex.Message); }
     }
 
+    private bool TryCopyAndExitAfterSelection()
+    {
+        if (!_hasSelection || !_settings.CopyAndExitAfterCapture || _ocrCapture || _qrCaptureOnly || _translationCapture)
+            return false;
+        var crop = Crop;
+        if (crop.Width < 1 || crop.Height < 1) return false;
+        ExecuteAction(CaptureAction.Copy, true);
+        return true;
+    }
+
     private void Confirm()
     {
         if (_finished || !_hasSelection) return;
@@ -1940,7 +1952,7 @@ internal sealed partial class CaptureForm : Form
         {
             var caret = compose.Length == 0 ? _caretRect
                 : TextEditLayout.Caret(g, _textFont, display, _textAnchor, index + Math.Clamp(_ime.CompositionCaret, 0, compose.Length));
-            TextEditLayout.DrawCaret(g, caret, _settings.Accent);
+            TextEditLayout.DrawCaret(g, caret, _settings.Accent, Ui);
         }
 
         if (_composeRect.Width > 0)

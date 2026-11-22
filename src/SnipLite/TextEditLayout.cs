@@ -82,17 +82,14 @@ internal static class TextEditLayout
         }
     }
 
-    public static void DrawCaret(Graphics graphics, Rectangle caret, Color color)
+    public static void DrawCaret(Graphics graphics, Rectangle caret, Color color, float scale)
     {
-        var arm = Math.Clamp(caret.Height / 6, 3, 8);
-        var x = caret.X; var bottom = caret.Bottom - 1;
-        // A thin I-beam with contrasting edges stays readable over any screenshot.
-        foreach (var (ink, width) in new[] { (Color.White, 3f), (color, 1f) })
-        {
-            using var pen = new Pen(ink, width);
-            graphics.DrawLine(pen, x, caret.Top, x, bottom);
-            graphics.DrawLine(pen, x - arm, caret.Top, x + arm, caret.Top);
-            graphics.DrawLine(pen, x - arm, bottom, x + arm, bottom);
-        }
+        var width = Math.Max(2, (int)Math.Round(2 * scale));
+        var outline = Math.Max(1, (int)Math.Round(scale));
+        var stem = new Rectangle(caret.X - width / 2, caret.Y, width, caret.Height);
+        // A contrasting edge keeps the caret visible over the frozen desktop.
+        graphics.FillRectangle(Brushes.White, Rectangle.Inflate(stem, outline, 0));
+        using var brush = new SolidBrush(color);
+        graphics.FillRectangle(brush, stem);
     }
 }

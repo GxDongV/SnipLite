@@ -31,14 +31,14 @@ internal static partial class Services
         return new[] { ".png", ".jpg", ".jpeg" }.Contains(Path.GetExtension(stem).ToLowerInvariant())
             ? Path.ChangeExtension(stem, extension) : stem + extension;
     }
-    public static string SaveCaptureFile(Bitmap image, AppSettings settings, string folder, string extension = ".png")
+    public static string SaveCaptureFile(Bitmap image, AppSettings settings, string folder, string extension = ".png", bool playSound = true)
     {
         Directory.CreateDirectory(folder);
         var filename = ImageFileName(settings, extension);
         var path = Path.Combine(folder, filename);
         for (var i = 2; File.Exists(path); i++) path = Path.Combine(folder, $"{Path.GetFileNameWithoutExtension(filename)} ({i}){extension}");
         SaveImage(image, path, extension is ".jpg" or ".jpeg", settings.JpegQuality);
-        if (settings.SoundOnSave) _ = PlaySoundAsync(settings.CaptureSound);
+        if (playSound && settings.SoundOnSave) _ = PlaySoundAsync(settings.CaptureSound);
         return path;
     }
     public static Task<bool> PlaySoundAsync(string path) => Task.Run(() =>

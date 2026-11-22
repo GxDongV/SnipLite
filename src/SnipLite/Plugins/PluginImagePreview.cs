@@ -113,13 +113,13 @@ internal sealed class PluginImagePreview : Form
                         if (ReferenceEquals(borrowed.Image, result.Image)) throw new InvalidOperationException("Processor returned its borrowed input.");
                         await host.PreviewImageAsync(result, cancellationToken);
                     }
-                })));
+                }), iconId: "image"));
             foreach (var (_, output) in manager.Outputs)
                 menu.Items.Add(SnipMenu.Item(output.Title.Get(host.Language), () => Run(async () =>
                 {
                     using var borrowed = new PluginImage(new Bitmap(Current), input.SourceBounds);
                     await output.ExportAsync(borrowed, host, cancellationToken);
-                })));
+                }), iconId: "output"));
             Button("extensions", "plugin", "Extensions…", "扩展工具…", () => menu.Show(_buttons["extensions"], new Point(0, _buttons["extensions"].Height)));
         }
         Controls.Add(_viewport); Controls.Add(_cropPanel); Controls.Add(_tools); Controls.Add(_status);

@@ -16,7 +16,17 @@ internal sealed class TextIBeamCursor : IDisposable
         var arm = Math.Clamp(Height / 6, 3, 8);
         using var bitmap = new Bitmap(arm * 2 + 5, Height + 4);
         using (var graphics = Graphics.FromImage(bitmap))
-            TextEditLayout.DrawCaret(graphics, new Rectangle(arm + 2, 2, 1, Height), Color.Black);
+        {
+            var center = arm + 2;
+            var bottom = Height + 1;
+            foreach (var (ink, width) in new[] { (Color.White, 3f), (Color.Black, 1f) })
+            {
+                using var pen = new Pen(ink, width);
+                graphics.DrawLine(pen, center, 2, center, bottom);
+                graphics.DrawLine(pen, center - arm, 2, center + arm, 2);
+                graphics.DrawLine(pen, center - arm, bottom, center + arm, bottom);
+            }
+        }
         var icon = bitmap.GetHicon();
         try
         {

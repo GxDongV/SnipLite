@@ -142,21 +142,31 @@ internal static class SnipMenu
         return menu;
     }
 
-    public static ToolStripMenuItem Item(string text, Action action, string shortcut = "", bool check = false, Image? pluginIcon = null, string? iconId = null)
+    public static void DisposeAfterClose(ContextMenuStrip menu)
     {
+        if (menu.IsDisposed) return;
+        if (menu.Visible) menu.Close();
+        if (SynchronizationContext.Current is WindowsFormsSynchronizationContext context)
+            context.Post(_ => menu.Dispose(), null);
+        else menu.Dispose();
+    }
+
+    public static ToolStripMenuItem Item(string text, Action? action = null, string shortcut = "", bool check = false, Image? pluginIcon = null, string? iconId = null)
+    {
+        iconId ??= FluentIcons.ForLabel(text);
         var item = new ToolStripMenuItem(text)
         {
             CheckOnClick = false,
             Checked = check,
             TextAlign = ContentAlignment.MiddleLeft,
-            Tag = (object?)pluginIcon ?? "fluent:" + (iconId ?? FluentIcons.ForLabel(text)),
+            Tag = (object?)pluginIcon ?? (iconId is null ? null : "fluent:" + iconId),
             Padding = new Padding(0, 5, 0, 5)
         };
 
         if (shortcut.Length > 0)
             item.ShortcutKeyDisplayString = shortcut;
 
-        item.Click += (_, _) => action();
+        if (action is not null) item.Click += (_, _) => action();
         Localization.LocalizedControls.Apply(item);
         return item;
     }

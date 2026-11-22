@@ -3,7 +3,11 @@ namespace SnipLite;
 internal sealed partial class PreferencesForm
 {
     private readonly int[] _subPages = new int[9];
+    private const int SubPageTabsH = 44;
     private readonly HashSet<string> _sectionProperties = new();
+    private readonly List<Action> _hotkeyRowUpdates = new();
+    private string[] _pluginHotkeyIds = [];
+    private bool IsHotkeysPage => _selected == ControlTab && _subPages[ControlTab] == 0;
     public event Action<bool>? HotkeyEditing;
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public Func<Keys, bool>? HotkeyAvailable { get; set; }
@@ -11,6 +15,7 @@ internal sealed partial class PreferencesForm
     private void SubPages(string[] names, params Action[] pages)
     {
         var selected = Math.Clamp(_subPages[_selected], 0, pages.Length - 1);
+        var tabs = IsLayoutPage ? _layoutHeader : _page;
         var x = _labelX;
         for (var i = 0; i < names.Length; i++)
         {
@@ -20,9 +25,9 @@ internal sealed partial class PreferencesForm
             button.BackColor = i == selected ? Page : Field;
             button.FlatAppearance.BorderColor = i == selected ? _s.Accent : FieldEdge;
             button.Click += (_, _) => { _subPages[_selected] = index; ShowTab(_selected); };
-            _page.Controls.Add(button); x += button.Width + Px(4);
+            tabs.Controls.Add(button); x += button.Width + Px(4);
         }
-        _y += Px(44);
+        _y += Px(SubPageTabsH);
         _captions = false;
         pages[selected]();
     }
@@ -262,6 +267,7 @@ internal sealed partial class PreferencesForm
         Flag("其他程序窗口激活时退出截屏", nameof(_s.ExitCaptureOnDeactivate));
         Number("截图及贴图各自的历史上限", nameof(_s.HistoryImageLimit), 0, 100);
         Flag("截图后自动复制", nameof(_s.CopyAfterCapture));
+        Flag("截图后自动复制并退出", nameof(_s.CopyAndExitAfterCapture));
         var sound = MakeText((string)Value(nameof(_s.CaptureSound)), 0);
         sound.TextChanged += (_, _) => Set(nameof(_s.CaptureSound), sound.Text);
         var choose = new FluentButton(); StyleButton(choose, "更改"); choose.Click += (_, _) =>
@@ -347,6 +353,7 @@ internal sealed partial class PreferencesForm
         pattern.TextChanged += (_, _) => { Set(nameof(_s.FileNamePattern), pattern.Text); preview.Text = Services.ImageFileName(_s, ".png"); };
         Row("文件名", pattern); Row("预览", preview);
         Flag("记住上一次使用的图片扩展名", nameof(_s.RememberImageExtension));
+        Flag("显示操作通知", nameof(_s.ShowToast));
         Flag("快速保存时显示通知", nameof(_s.QuickSaveToast)); FolderRow("快速保存路径", nameof(_s.QuickSaveDirectory));
         Flag("自动保存", nameof(_s.AutoSave)); FolderRow("自动保存路径", nameof(_s.SaveDirectory));
         HintText("命名支持 $yyyy$ $MM$ $dd$ $HH$ $mm$ $ss$ 和 $yyyy-MM-dd_HH-mm-ss$。");
@@ -359,84 +366,126 @@ internal sealed partial class PreferencesForm
     }
     private void HotkeysPage()
     {
-        Flag("启用全局快捷键", nameof(_s.HotkeysEnabled));
+        var enabled = (bool)Value(nameof(_s.HotkeysEnabled));
+        Check("启用全局快捷键", enabled, value =>
+        {
+            Set(nameof(_s.HotkeysEnabled), value);
+            RefreshHotkeyRows();
+        });
         foreach (var (label, name) in HotkeyDefinitions.Items)
         {
-            var binding = (Keys)Value(name);
-            string BindingText() => _s.HotkeyErrors.TryGetValue(name, out var error)
-                ? $"{HotkeyDefinitions.Format(binding)} · {UiText.T(error)}" : HotkeyDefinitions.Format(binding);
-            var current = MakeStatic(BindingText());
-            var change = new FluentButton();
-            StyleButton(change, UiText.T("更改", _s.DisplayLanguage));
-            change.Click += (_, _) =>
+            Value(name);
+            var property = typeof(AppSettings).GetProperty(name)!;
+            HotkeyRow(name, label, () => (Keys)property.GetValue(_s)!, binding => Set(name, binding));
+        }
+        var commands = _plugins?.Commands ?? [];
+        _pluginHotkeyIds = commands.Select(command => command.Id).ToArray();
+        if (_plugins is { } plugins && commands.Count > 0)
+        {
+            _captions = true;
+            _y += Px(SectionGap);
+            Section("插件快捷键", () =>
             {
-                HotkeyEditing?.Invoke(true);
-                try
-                {
-                    using var dialog = new Form
-                    {
-                        Text = UiText.T(label), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog,
-                        AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ShowInTaskbar = false,
-                        MinimizeBox = false, MaximizeBox = false, Font = Font
-                    };
-                    var panel = new FlowLayoutPanel
-                    {
-                        AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false,
-                        Padding = new Padding(Px(12))
-                    };
-                    var box = new HotkeyBox { Binding = binding, Width = Px(310) };
-                    var status = new Label { AutoSize = true, Text = UiText.T("按下新快捷键，或按 Delete 清除。") };
-                    var buttons = new FlowLayoutPanel { AutoSize = true };
-                    var confirm = new FluentButton();
-                    var cancel = new FluentButton { DialogResult = DialogResult.Cancel };
-                    StyleButton(confirm, "确认");
-                    StyleButton(cancel, "取消");
-                    confirm.Enabled = false;
-                    box.BindingChanged += candidate =>
-                    {
-                        confirm.Enabled = candidate != binding;
-                        status.Text = UiText.T(confirm.Enabled ? "点击确认以保存更改。" : "当前绑定未改变。");
-                    };
-                    confirm.Click += (_, _) =>
-                    {
-                        var candidate = box.Binding;
-                        if (candidate != Keys.None && HotkeyDefinitions.Items.Any(item => item.Name != name &&
-                            (Keys)typeof(AppSettings).GetProperty(item.Name)!.GetValue(_s)! == candidate))
-                        {
-                            status.Text = UiText.T("与其他功能重复，请重新输入。");
-                            box.Focus();
-                            return;
-                        }
-                        if (candidate != Keys.None && name != nameof(AppSettings.CopyCoordinatesHotkey) &&
-                            HotkeyAvailable?.Invoke(candidate) == false)
-                        {
-                            status.Text = UiText.T("组合键被占用或由系统保留，请重新输入。");
-                            box.Focus();
-                            return;
-                        }
-                        dialog.DialogResult = DialogResult.OK;
-                    };
-                    buttons.Controls.AddRange(new Control[] { confirm, cancel });
-                    panel.Controls.AddRange(new Control[] { box, status, buttons });
-                    dialog.Controls.Add(panel);
-                    dialog.CancelButton = cancel;
-                    dialog.ActiveControl = box;
-                    AppTheme.Apply(dialog);
-                    if (dialog.ShowDialog(this) == DialogResult.OK)
-                    {
-                        Set(name, box.Binding);
-                        binding = box.Binding;
-                    }
-                }
-                finally
-                {
-                    HotkeyEditing?.Invoke(false);
-                    current.Text = BindingText();
-                }
-            };
-            Row(label, change, current);
+                foreach (var command in commands)
+                    HotkeyRow(command.Id, command.Title.Get(Localization.LanguageService.CurrentLanguage),
+                        () => plugins.Hotkey(command.Id), binding => plugins.SetHotkey(command.Id, binding), "plugin", command.Icon);
+            });
         }
         HintText("点击「更改」录入快捷键，确认后生效。");
+    }
+
+    private void HotkeyRow(string id, string label, Func<Keys> read, Action<Keys> save, string? iconId = null, Image? icon = null)
+    {
+        var current = MakeStatic("");
+        void UpdateBinding()
+        {
+            var binding = HotkeyDefinitions.Format(read());
+            current.Text = _s.HotkeyErrors.TryGetValue(id, out var error) ? $"{binding} · {UiText.T(error)}" : binding;
+        }
+        _hotkeyRowUpdates.Add(UpdateBinding);
+        UpdateBinding();
+
+        var change = new FluentButton();
+        StyleButton(change, "更改");
+        change.Click += (_, _) => EditHotkey(id, UiText.T(label), read(), save);
+        SettingRow(label, iconId, icon, change, current);
+    }
+
+    private void RefreshHotkeyRows()
+    {
+        foreach (var update in _hotkeyRowUpdates) update();
+    }
+
+    private bool IsHotkeyInUse(string id, Keys binding) =>
+        HotkeyDefinitions.Items.Any(item => item.Name != id && (Keys)typeof(AppSettings).GetProperty(item.Name)!.GetValue(_s)! == binding)
+        || _plugins is { } plugins && plugins.Commands.Any(command => command.Id != id && plugins.Hotkey(command.Id) == binding);
+
+    private void EditHotkey(string id, string label, Keys binding, Action<Keys> save)
+    {
+        HotkeyEditing?.Invoke(true);
+        try
+        {
+            using var dialog = new Form
+            {
+                Text = label, StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog,
+                AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ShowInTaskbar = false,
+                MinimizeBox = false, MaximizeBox = false, Font = Font
+            };
+            var panel = new FlowLayoutPanel
+            {
+                AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false,
+                Padding = new Padding(Px(12))
+            };
+            var box = new HotkeyBox { Binding = binding, Width = Px(310) };
+            var status = new Label { AutoSize = true, MaximumSize = new Size(Px(480), 0), Text = UiText.T("按下新快捷键，或按 Delete 清除。") };
+            var buttons = new FlowLayoutPanel { AutoSize = true };
+            var confirm = new FluentButton { Enabled = false };
+            var cancel = new FluentButton { DialogResult = DialogResult.Cancel };
+            StyleButton(confirm, "确认");
+            StyleButton(cancel, "取消");
+            box.BindingChanged += candidate =>
+            {
+                confirm.Enabled = candidate != binding;
+                status.Text = UiText.T(confirm.Enabled ? "点击确认以保存更改。" : "当前绑定未改变。");
+            };
+            confirm.Click += (_, _) =>
+            {
+                var candidate = box.Binding;
+                if (candidate != Keys.None && IsHotkeyInUse(id, candidate))
+                {
+                    status.Text = UiText.T("与其他功能重复，请重新输入。");
+                    box.Focus();
+                    return;
+                }
+                if (candidate != Keys.None && id != nameof(AppSettings.CopyCoordinatesHotkey) && HotkeyAvailable?.Invoke(candidate) == false)
+                {
+                    status.Text = UiText.T("组合键被占用或由系统保留，请重新输入。");
+                    box.Focus();
+                    return;
+                }
+                try
+                {
+                    save(candidate);
+                    dialog.DialogResult = DialogResult.OK;
+                }
+                catch (Exception ex)
+                {
+                    status.Text = ex.Message;
+                }
+            };
+            buttons.Controls.AddRange(new Control[] { confirm, cancel });
+            panel.Controls.AddRange(new Control[] { box, status, buttons });
+            dialog.Controls.Add(panel);
+            dialog.CancelButton = cancel;
+            dialog.ActiveControl = box;
+            AppTheme.Apply(dialog);
+            dialog.ShowDialog(this);
+        }
+        finally
+        {
+            HotkeyEditing?.Invoke(false);
+            RefreshHotkeyRows();
+        }
     }
     private void ModifierRow(string label, string property)
         => Choice(label, property, new[] { "无", "Ctrl", "Alt", "Shift", "Ctrl+Shift", "Ctrl+Alt" },

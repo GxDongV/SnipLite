@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 
 namespace SnipLite;
@@ -10,10 +12,11 @@ internal sealed class HotkeyHost : NativeWindow, IDisposable
     public const uint MOD_SHIFT = 0x0004;
     public const uint MOD_WIN = 0x0008;
     public const uint MOD_NOREPEAT = 0x4000;
+    public const int ErrorHotkeyAlreadyRegistered = 1409;
 
     private const int WM_HOTKEY = 0x0312;
 
-    private readonly Dictionary<int, Action> _handlers = new();
+    private readonly Dictionary<int, (string Description, Action Handler)> _handlers = new();
     private int _nextId = 1;
 
     public HotkeyHost()
@@ -44,16 +47,21 @@ internal sealed class HotkeyHost : NativeWindow, IDisposable
         return true;
     }
 
-    public bool Register(Keys binding, Action handler) =>
-        Register(Modifiers(binding), binding & Keys.KeyCode, handler);
-
-    public bool Register(uint modifiers, Keys key, Action handler)
+    public bool TryRegister(Keys binding, string command, Action handler, [NotNullWhen(false)] out Win32Exception? error)
     {
         var id = _nextId++;
-        if (!RegisterHotKey(Handle, id, modifiers | MOD_NOREPEAT, (uint)key))
+        if (!RegisterHotKey(Handle, id, Modifiers(binding) | MOD_NOREPEAT, (uint)(binding & Keys.KeyCode)))
+        {
+            var errorCode = Marshal.GetLastPInvokeError();
+            error = new Win32Exception(errorCode);
+            AppLog.Write($"Global hotkey registration failed: command={command} binding={HotkeyDefinitions.Format(binding)} win32={errorCode}", error);
             return false;
+        }
 
-        _handlers[id] = handler;
+        var description = $"command={command} binding={HotkeyDefinitions.Format(binding)}";
+        _handlers[id] = (description, handler);
+        AppLog.Write($"Global hotkey registered: {description}", debug: true);
+        error = null;
         return true;
     }
 
@@ -68,9 +76,11 @@ internal sealed class HotkeyHost : NativeWindow, IDisposable
 
     protected override void WndProc(ref Message m)
     {
-        if (m.Msg == WM_HOTKEY && _handlers.TryGetValue(m.WParam.ToInt32(), out var handler))
+        if (m.Msg == WM_HOTKEY && _handlers.TryGetValue(m.WParam.ToInt32(), out var registration))
         {
-            try { handler(); } catch { /* never let a hotkey kill the loop */ }
+            AppLog.Write($"Global hotkey received: {registration.Description}", debug: true);
+            try { registration.Handler(); }
+            catch (Exception ex) { AppLog.Write($"Global hotkey handler failed: {registration.Description}", ex); }
             return;
         }
 

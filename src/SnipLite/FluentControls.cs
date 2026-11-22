@@ -157,7 +157,9 @@ internal sealed class FluentButton : Button
     protected override void OnPaint(PaintEventArgs e)
     {
         var p = AppTheme.Current; var s = DeviceDpi / 96f; var g = e.Graphics;
-        g.Clear(Parent?.BackColor ?? p.Window); g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.Clear(Parent?.BackColor ?? p.Window);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.PixelOffsetMode = PixelOffsetMode.Half;
         var surface = Selected ? p.AccentSoft : _hover ? p.Hover : BackColor;
         using var path = FluentDrawing.Rounded(new RectangleF(.5f, .5f, Width - 1, Height - 1), 5 * s);
         using var fill = new SolidBrush(surface); g.FillPath(fill, path);
