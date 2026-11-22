@@ -28,6 +28,7 @@ internal static class Program
             Plugins().GetAwaiter().GetResult();
             BundledPlugin();
             PluginPackageLifecycle();
+            if (args.Contains("--live-catalog")) LivePluginCatalog().GetAwaiter().GetResult();
             InstallerChecks().GetAwaiter().GetResult();
             CaptureLifecycle();
             ScrollTargetRecovery();
@@ -645,6 +646,10 @@ internal static class Program
             form.Show(); Application.DoEvents();
             var toggle = Descendants(form).OfType<FluentToggle>().Single();
             Check(toggle.Checked == official.Enabled, "plugin row reflects enable state: " + language.Code);
+            var uninstall = Descendants(form).OfType<FluentButton>()
+                .Single(button => button.Text == UiText.T("卸载插件", language.Code));
+            Check(uninstall.Enabled && uninstall.Parent == toggle.Parent && uninstall.Left > toggle.Right &&
+                uninstall.Anchor.HasFlag(AnchorStyles.Right), "uninstall is at the far right of the plugin row: " + language.Code);
             toggle.Checked = !official.Enabled;
             Application.DoEvents();
             Check(manager.Commands.Count == (official.Enabled ? 1 : 0), "plugin switch changes commands immediately: " + language.Code);
@@ -924,9 +929,9 @@ internal static class Program
         using (var manager = Open())
         {
             var active = manager.Records.Single();
-            Check(active.Bundled && manager.Commands.Count == 1 && manager.CanUninstall(active),
+            Check(active.Bundled && manager.Commands.Count == 1 && manager.CanRestoreBundled(active),
                 "a broken update falls back to a usable bundled plugin and can be removed");
-            manager.Uninstall(active);
+            manager.RestoreBundled(active);
             manager.ImportPackage(Package(externalId, "1.0.0"));
             var imported = manager.Records.Single(record => record.Manifest?.Id == externalId);
             Check(!imported.Enabled, "new third-party imports still require opt-in");
@@ -945,8 +950,92 @@ internal static class Program
             manager.Uninstall(active);
         }
         using (var manager = Open())
-            Check(manager.Records.Count == 1 && manager.Records.Single().Bundled &&
-                manager.Hotkey(externalId + "/capture") == binding, "uninstall removes the third-party entry while keeping preferences");
+        {
+            var bundled = manager.Records.Single();
+            Check(bundled.Bundled && manager.Hotkey(externalId + "/capture") == binding,
+                "uninstall removes the third-party entry while keeping preferences");
+            Check(manager.CanUninstall(bundled) && !manager.CanRestoreBundled(bundled),
+                "the bundled plugin has an uninstall action without a redundant restore action");
+            manager.Uninstall(bundled);
+            Check(!manager.CanUninstall(bundled) && manager.HasPendingChanges,
+                "uninstall is staged once and shows a pending restart");
+        }
+        using (var manager = Open())
+        {
+            Check(manager.Records.Count == 0 && manager.Commands.Count == 0 &&
+                manager.Hotkey(scrollId + "/capture") == binding, "bundled uninstall persists on startup and keeps the hotkey");
+            manager.ImportPackage(update);
+            var installed = manager.Records.Single();
+            Check(!installed.Bundled && manager.CanRestoreBundled(installed),
+                "the user can reinstall an independent package after removing the bundled plugin");
+        }
+        using (var manager = Open())
+        {
+            var installed = manager.Records.Single();
+            Check(!installed.Bundled, "restarting after reinstall loads the independent version");
+            manager.Uninstall(installed);
+        }
+        using (var manager = Open())
+            Check(manager.Records.Count == 0 && manager.Commands.Count == 0,
+                "uninstalling an independent long capture package leaves the plugin removed");
+    }
+
+    private static async Task LivePluginCatalog()
+    {
+        var entries = await PluginCatalog.FetchAsync(CancellationToken.None);
+        var entry = entries.Single(plugin => plugin.Id == BundledScrollPlugin.Id);
+        Check(entry.IsCompatible, "the published scrolling plugin supports this host");
+
+        var root = Path.Combine(Path.GetTempPath(), "SnipLite-catalog-check-" + Guid.NewGuid().ToString("N"));
+        var settings = Path.Combine(root, "plugins.json");
+        var cache = Path.Combine(root, "bundled");
+        var packages = Path.Combine(root, "packages");
+        var commandId = entry.Id + "/capture";
+        var shortcut = Keys.Control | Keys.Shift | Keys.F9;
+        PluginManager Open()
+        {
+            var plugins = new PluginManager(new FakeHost(), () => true, settings, packages);
+            plugins.DiscoverBundled(cache);
+            plugins.DiscoverInstalled();
+            return plugins;
+        }
+
+        try
+        {
+            using (var plugins = Open())
+            {
+                var bundled = plugins.Records.Single();
+                Check(bundled.Bundled && bundled.Loaded, "the trial starts from the offline bundled plugin");
+                plugins.SetHotkey(commandId, shortcut);
+                plugins.SetEnabled(bundled, false);
+                await plugins.InstallFromCatalogAsync(entry, CancellationToken.None);
+                Check(bundled.PendingVersion == entry.Version && bundled.RestartPending, "the published update is staged until restart");
+            }
+            using (var plugins = Open())
+            {
+                var updated = plugins.Records.Single();
+                Check(!updated.Bundled && updated.Manifest?.Version == entry.Version &&
+                    !updated.Enabled && plugins.Hotkey(commandId) == shortcut, "update preserves the disabled setting and shortcut");
+                plugins.SetEnabled(updated, true);
+                Check(updated.Loaded && plugins.Commands.Any(command => command.Id == commandId), "the independent package loads and registers its command");
+                plugins.RestoreBundled(updated);
+            }
+            using (var plugins = Open())
+                Check(plugins.Records.Single() is { Bundled: true, Loaded: true } && plugins.Hotkey(commandId) == shortcut,
+                    "the offline version is restored with the saved shortcut");
+            Console.WriteLine($"Verified live catalog and plugin release {entry.Version}.");
+        }
+        finally
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            try { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Console.Error.WriteLine($"Could not delete temporary catalog test files: {root}. {ex.Message}");
+            }
+        }
     }
 
     private static async Task InstallerChecks()
@@ -989,6 +1078,19 @@ internal static class Program
                 var downloadRoot = Path.Combine(temporary, "downloaded");
                 var downloaded = await PluginInstaller.DownloadAsync(new Uri("https://plugins.example/test.snipplugin"), downloadRoot, CancellationToken.None, client);
                 Check(File.Exists(Path.Combine(downloaded, "plugin.json")), "HTTPS response downloads and installs through shared importer");
+                var manifest = PluginManifest.Read(Path.Combine(downloaded, "plugin.json"));
+                var release = new CatalogPlugin(manifest.Id, manifest.Name, "", "Test", "Test package", "", manifest.Version,
+                    manifest.ApiVersion, manifest.MinHostVersion, manifest.Architecture, new Uri("https://plugins.example/test.snipplugin"),
+                    Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(package))));
+                var catalogRoot = Path.Combine(temporary, "catalog-download");
+                using var catalogManager = new PluginManager(new FakeHost(), () => true, Path.Combine(temporary, "catalog.json"), catalogRoot);
+                try { await catalogManager.InstallFromCatalogAsync(release with { Sha256 = new string('0', 64) }, CancellationToken.None, client); throw new Exception("Wrong digest accepted."); }
+                catch (InvalidDataException) { _checks++; }
+                try { await catalogManager.InstallFromCatalogAsync(release with { Id = "checks.different" }, CancellationToken.None, client); throw new Exception("Wrong plugin identity accepted."); }
+                catch (InvalidDataException) { _checks++; }
+                Check(catalogManager.Records.Count == 0, "rejected catalog packages do not register plugins");
+                await catalogManager.InstallFromCatalogAsync(release, CancellationToken.None, client);
+                Check(catalogManager.Records.Single().Manifest?.Id == manifest.Id, "a matching catalog package is installed");
                 try { await PluginInstaller.DownloadAsync(new Uri("http://plugins.example/test.zip"), downloadRoot, CancellationToken.None, client); throw new Exception("Insecure URL accepted."); }
                 catch (ArgumentException) { _checks++; }
                 using var canceled = new CancellationTokenSource(); canceled.Cancel();

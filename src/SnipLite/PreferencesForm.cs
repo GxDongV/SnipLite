@@ -438,7 +438,7 @@ internal sealed partial class PreferencesForm : Form
             case 4: BuildOutput(); break;
             case ControlTab: BuildControl(); break;
             case 6: BuildUpdate(); break;
-            case PluginsTab: PluginsPage(); break;
+            case PluginsTab: SubPages(new[] { "已安装插件", "发现插件" }, PluginsPage, PluginCatalogPage); break;
             default: BuildAbout(); break;
         }
 

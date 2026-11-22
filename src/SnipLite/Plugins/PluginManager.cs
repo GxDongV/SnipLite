@@ -83,9 +83,15 @@ internal sealed class PluginManager : IDisposable
     {
         try
         {
+            var suppliedDirectory = ManagedDirectory(BundledScrollPlugin.Id);
+            if (_preferences.BundledScrollCaptureRemoved)
+            {
+                if (suppliedDirectory is not null) DiscoverPlugin(suppliedDirectory, false);
+                return;
+            }
+
             var bundledDirectory = BundledScrollPlugin.Prepare(cacheRoot);
             var bundled = PluginManifest.Read(Path.Combine(bundledDirectory, "plugin.json"));
-            var suppliedDirectory = ManagedDirectory(bundled.Id);
             var supplied = suppliedDirectory is null ? null : ReadInstalled(suppliedDirectory, bundled.Id);
             if (supplied is not null && CompareVersions(supplied.Version, bundled.Version) > 0)
             {
@@ -152,6 +158,19 @@ internal sealed class PluginManager : IDisposable
     public Task DownloadPackageAsync(Uri uri, CancellationToken token) =>
         PluginInstaller.DownloadAsync(uri, _userDirectory, token, InstallPackage);
 
+    public async Task InstallFromCatalogAsync(CatalogPlugin entry, CancellationToken token, HttpClient? client = null)
+    {
+        if (!entry.IsCompatible) throw new InvalidOperationException(UiText.T("与当前版本不兼容"));
+        using var ownedClient = client is null ? new HttpClient { Timeout = TimeSpan.FromMinutes(2) } : null;
+        await PluginInstaller.DownloadAsync(entry.DownloadUrl, _userDirectory, token, client ?? ownedClient!, (manifest, source) =>
+        {
+            entry.VerifyManifest(manifest);
+            return InstallPackage(manifest, source);
+        }, entry.Sha256);
+    }
+
+    public PluginRecord? CatalogRecord(string id) => Find(id);
+
     private string InstallPackage(PluginManifest manifest, string source)
     {
         var record = Find(manifest.Id);
@@ -189,9 +208,21 @@ internal sealed class PluginManager : IDisposable
 
     public void Uninstall(PluginRecord record)
     {
-        if (!Records.Contains(record) || !CanUninstall(record) || record.Manifest is not { } manifest)
+        if (!CanUninstall(record))
             throw new InvalidOperationException(UiText.T("无法卸载此插件。"));
-        SetPackage(manifest.Id, null);
+        ScheduleRemoval(record, removeBundled: record.IsScrollCapture);
+    }
+
+    public void RestoreBundled(PluginRecord record)
+    {
+        if (!CanRestoreBundled(record))
+            throw new InvalidOperationException(UiText.T("无法卸载此插件。"));
+        ScheduleRemoval(record, removeBundled: false);
+    }
+
+    private void ScheduleRemoval(PluginRecord record, bool removeBundled)
+    {
+        SetPackage(record.Manifest!.Id, null, record.IsScrollCapture ? removeBundled : null);
         record.PendingVersion = null;
         record.RestartPending = true;
         Changed?.Invoke();
@@ -199,8 +230,11 @@ internal sealed class PluginManager : IDisposable
 
     public bool HasPendingChanges => Records.Any(record => record.RestartPending);
 
-    public bool CanUninstall(PluginRecord record) => record.Manifest is { } manifest &&
-        (!record.Bundled || ManagedDirectory(manifest.Id) is not null);
+    public bool CanUninstall(PluginRecord record) => Records.Contains(record) && record.Manifest is not null &&
+        (!record.RestartPending || record.PendingVersion is not null);
+
+    public bool CanRestoreBundled(PluginRecord record) => record.IsScrollCapture && CanUninstall(record) &&
+        ManagedDirectory(BundledScrollPlugin.Id) is not null;
 
     private PluginRecord? Find(string id) => Records.FirstOrDefault(record =>
         string.Equals(record.Manifest?.Id, id, StringComparison.OrdinalIgnoreCase));
@@ -231,7 +265,7 @@ internal sealed class PluginManager : IDisposable
         }
     }
 
-    private static int CompareVersions(string left, string right)
+    internal static int CompareVersions(string left, string right)
     {
         static Version Normalize(string value)
         {
@@ -241,15 +275,19 @@ internal sealed class PluginManager : IDisposable
         return Normalize(left).CompareTo(Normalize(right));
     }
 
-    private void SetPackage(string id, string? generation)
+    private void SetPackage(string id, string? generation, bool? bundledScrollCaptureRemoved = null)
     {
         var existed = _preferences.InstalledPackages.TryGetValue(id, out var previous);
+        var previouslyRemoved = _preferences.BundledScrollCaptureRemoved;
         _preferences.InstalledPackages[id] = generation;
+        if (bundledScrollCaptureRemoved is bool removed)
+            _preferences.BundledScrollCaptureRemoved = removed;
         try { Save(); }
         catch
         {
             if (existed) _preferences.InstalledPackages[id] = previous;
             else _preferences.InstalledPackages.Remove(id);
+            _preferences.BundledScrollCaptureRemoved = previouslyRemoved;
             throw;
         }
     }

@@ -51,6 +51,7 @@ internal sealed class PluginPreferences
     public HashSet<string> EnabledUserPlugins { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public HashSet<string> DisabledPlugins { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, Keys> Hotkeys { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public bool BundledScrollCaptureRemoved { get; set; }
     // Package generation, or null after uninstall to suppress any legacy copy.
     public Dictionary<string, string?> InstalledPackages { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }

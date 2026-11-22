@@ -49,11 +49,11 @@ All three include the .NET runtime. The single-file version extracts native depe
 
 ## Plugins
 
-SnipLite v0.3.16 bundles Scroll Capture 0.1.6 in all three packages and enables it by default.
+SnipLite v0.3.17 bundles Scroll Capture 0.1.6 in all three packages and enables it by default.
 
 - **Install or update.** In **Preferences → Plugins**, choose **Import plugin…** for a downloaded `.snipplugin` file or **Download plugin…** for an HTTPS package URL. Enable newly installed plugins from the list. Restart SnipLite to apply an update.
-- **Manage.** Use the switch next to each plugin to enable or disable it. For an updated Scroll Capture installation, choose **Restore bundled version** to roll back on the next restart. Updates and restores keep your plugin settings and hotkeys.
-- **Browse in the app.** Preview builds with catalog support offer **Preferences → Plugins → Discover plugins** for browsing, installing and updating listed plugins.
+- **Manage.** In **Installed plugins**, use the switch to enable or disable a plugin. Choose **Uninstall plugin** at the right end of its row and confirm. For an updated Scroll Capture installation, choose **Restore bundled version** to roll back. Uninstall, update and restore take effect on restart and keep plugin settings and hotkeys.
+- **Browse in the app.** Open **Preferences → Plugins → Discover plugins** to browse, install or update plugins from the official catalog.
 
 ### Official plugin list
 

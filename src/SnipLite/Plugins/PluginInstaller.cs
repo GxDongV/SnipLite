@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Security.Cryptography;
 
 namespace SnipLite.Plugins;
 
@@ -55,7 +56,8 @@ internal static class PluginInstaller
         return await DownloadAsync(address, pluginDirectory, token, client, install);
     }
 
-    internal static async Task<string> DownloadAsync(Uri address, string pluginDirectory, CancellationToken token, HttpClient client, Func<PluginManifest, string, string>? install = null)
+    internal static async Task<string> DownloadAsync(Uri address, string pluginDirectory, CancellationToken token, HttpClient client,
+        Func<PluginManifest, string, string>? install = null, string? expectedSha256 = null)
     {
         if (!address.IsAbsoluteUri || address.Scheme != Uri.UriSchemeHttps || address.UserInfo.Length > 0)
             throw new ArgumentException(UiText.T("请输入 HTTPS 插件包下载地址。"));
@@ -77,6 +79,13 @@ internal static class PluginInstaller
                     if (total > MaxBytes) throw new InvalidDataException(UiText.T("插件包超过 64 MB 限制。"));
                     await output.WriteAsync(buffer.AsMemory(0, count), token);
                 }
+            }
+            if (expectedSha256 is not null)
+            {
+                await using var package = File.OpenRead(temporary);
+                var actual = Convert.ToHexString(await SHA256.HashDataAsync(package, token));
+                if (!actual.Equals(expectedSha256, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException(UiText.T("插件包校验失败。"));
             }
             token.ThrowIfCancellationRequested();
             return Import(temporary, pluginDirectory, install);

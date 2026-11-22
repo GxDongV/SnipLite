@@ -75,15 +75,21 @@ F1 选区中启动插件时，宿主把该物理选区交给插件的下一次 `
 ./scripts/package-plugin.ps1 -Project examples/SnipLite.WatermarkPlugin/SnipLite.WatermarkPlugin.csproj
 ```
 
-把资源设置为 `CopyToOutputDirectory="PreserveNewest"`。脚本将发布文件打包到 `.local/plugin-packages`，运行时 SDK 由宿主提供。可在「首选项 → 插件」导入 ZIP 或 `.snipplugin`，也可填入 HTTPS 包直链。首次导入的第三方插件需要手动启用。更新时使用相同 ID 和更高的 `version`，直接导入新包，再点击「立即重启」使其生效。同一页可卸载第三方插件。重启后移除插件，保留用户设置、数据和快捷键。
+把资源设置为 `CopyToOutputDirectory="PreserveNewest"`。脚本将发布文件打包到 `.local/plugin-packages`，运行时 SDK 由宿主提供。可在「首选项 → 插件」导入 ZIP 或 `.snipplugin`，也可填入 HTTPS 包直链。首次导入的第三方插件需要手动启用。更新时使用相同 ID 和更高的 `version`，直接导入新包，再点击「立即重启」使其生效。在「已安装插件」点击对应行右侧的「卸载插件」并确认。重启后移除插件，保留用户设置、数据和快捷键。
 
 安装器先解压并校验，再把包保存到 `%LOCALAPPDATA%\SnipLite\Plugins\.packages` 下独立的版本目录，并记录下次启动要加载的包。当前正在使用的 DLL 继续工作到重启。包最多 512 个条目，下载和解压大小各限 64 MiB。拒绝符号链接、重复路径、路径越界以及相同版本或降级导入。
 
-**随程序提供的插件。** 从 v0.3.15 起，单文件版、安装版和解压版均自带长截图插件 `sniplite.scroll-capture`。宿主通过公共插件加载器加载，默认启用，并保留明确的停用选择。通过新版插件页导入更高版本后，重启时优先加载该版本。「恢复内置版本」可以移除独立更新包。如独立包加载失败，或主程序随附的版本更新，宿主会使用随附版本。
+**随程序提供的插件。** 从 v0.3.15 起，单文件版、安装版和解压版均自带长截图插件 `sniplite.scroll-capture`。宿主通过公共插件加载器加载，默认启用，并保留明确的停用选择。通过新版插件页导入更高版本后，重启时优先加载该版本。「恢复内置版本」会移除独立更新包并切回随附版本。「卸载插件」会在重启后移除长截图的入口，可通过导入或发现插件重新安装。未主动卸载内置版时，若独立包加载失败或主程序随附的版本更新，宿主会使用随附版本。
 
 API v1 的现有接口保持兼容。新增能力应使用可选接口，破坏性契约变更使用新的 SDK 主版本。
 
-## 6. 接入验收
+## 6. 独立发布与目录收录
+
+长截图从 [独立插件仓库](https://github.com/GxDongV/SnipLite-ScrollCapture) 发布。其 Release 同时提供插件包和开发用的 `SnipLite.Plugin.Abstractions.1.0.0.nupkg`。独立开发者把 SDK 包加入本地 NuGet 源，并使用带 `ExcludeAssets="runtime"` 的 `PackageReference` 编译。运行时 SDK 仍由宿主提供。
+
+将版本化的 `.snipplugin` 上传到 GitHub Releases。可在自己的插件仓库发布，也可由维护者发布到 [官方插件目录](https://github.com/GxDongV/SnipLite-Plugin-Catalog)。计算已发布文件的 SHA-256，再更新官方目录。目录中的插件 ID、版本、API 版本、最低宿主版本和架构应与包内清单一致。客户端在「首选项 → 插件 → 发现插件」读取目录，下载后先校验摘要，再校对清单并安装。
+
+## 7. 接入验收
 
 用干净的用户配置导入、启用，检查托盘和 F1 工具栏入口、图标、关闭和取消。在「首选项 → 控制 → 全局快捷键」底部设置插件命令的快捷键，重启后核对绑定。测试处理器的输入生命周期，以及预览中的复制、保存和贴图。仓库回归可用以下命令运行。
 
