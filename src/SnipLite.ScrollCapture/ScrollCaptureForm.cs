@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using SnipLite.Plugin.Abstractions;
 
@@ -5,6 +6,10 @@ namespace SnipLite.ScrollCapture;
 
 internal class ScrollCaptureForm : Form
 {
+    private const int SampleIntervalMilliseconds = 40;
+    private const int StableSamplesRequired = 3;
+    private const int WheelResponseTimeoutMilliseconds = 750;
+
     private readonly IPluginHost _host;
     private readonly Rectangle _region;
     private readonly ScrollStepSize _stepSize;
@@ -13,7 +18,7 @@ internal class ScrollCaptureForm : Form
     private bool _waitingForTarget;
     private readonly CancellationTokenSource _lifetime;
     private readonly CancellationTokenRegistration _cancellation;
-    private readonly System.Windows.Forms.Timer _timer = new() { Interval = 180 };
+    private readonly System.Windows.Forms.Timer _timer = new() { Interval = SampleIntervalMilliseconds };
     private readonly ScrollStatus _status = new();
     private readonly ScrollButton _pause = new() { Glyph = "pause" };
     private readonly ScrollButton _undo = new() { Glyph = "undo" };
@@ -32,6 +37,7 @@ internal class ScrollCaptureForm : Form
     private bool _finishRequested;
     private ScrollImageStore? _store;
     private FrameSample? _pending;
+    private int _stableSamples;
     private PluginImage? _result;
     private CaptureOutline? _outline;
     private bool _paused;
@@ -61,6 +67,15 @@ internal class ScrollCaptureForm : Form
         _finish.Text = T("Finish", "完成");
         _cancel.Text = T("Cancel", "取消");
         _automatic.Text = T("Auto scroll", "自动滚动", "自動捲動");
+        var minimumOverlap = FrameMatcher.MinimumOverlap(region.Height);
+        var maximumOffset = region.Height - minimumOverlap;
+        var range = $"{region.Width} × {region.Height} px";
+        var overlap = $"{region.Width} × {minimumOverlap} px";
+        _status.CaptureRange = maximumOffset > 0
+            ? T($"Area {range} · Min overlap {overlap} · Search 1–{maximumOffset} px",
+                $"选区 {range} · 最小重叠 {overlap} · 搜索 1–{maximumOffset} px",
+                $"選區 {range} · 最小重疊 {overlap} · 搜尋 1–{maximumOffset} px")
+            : T($"Area {range} · Selection is too short for matching", $"选区 {range} · 高度不足以拼接", $"選區 {range} · 高度不足以拼接");
         _automatic.TabIndex = 0; _pause.TabIndex = 1; _undo.TabIndex = 2; _finish.TabIndex = 3; _cancel.TabIndex = 4;
         _tips.SetToolTip(_undo, T("Undo last strip", "撤销上一段", "復原上一段"));
         _tips.SetToolTip(_cancel, T("Cancel capture (Esc)", "取消截图（Esc）", "取消截圖（Esc）"));
@@ -71,10 +86,11 @@ internal class ScrollCaptureForm : Form
         UpdateButtons();
         _pause.Click += (_, _) =>
         {
-            _paused = !_paused; _generation++; _pending = null; _uncertainFrames = _unchangedAttempts = 0;
+            _paused = !_paused; _generation++; ResetStability(); _unchangedAttempts = 0;
+            if (!_paused) ShowAlignment(null);
             // After a pause the page may have moved. Confirm it against the last
             // accepted image before issuing another wheel message.
-            _awaitingScroll = !_paused; _scrollIssuedAt = Environment.TickCount64;
+            _awaitingScroll = !_paused; _scrollIssuedAt = 0;
             _waitingForTarget = false; _targetWait.Reset();
             if (_paused) { _scroller?.Dispose(); _scroller = null; }
             else if (_automatic.Checked) PrepareAutoScroll();
@@ -82,12 +98,12 @@ internal class ScrollCaptureForm : Form
         };
         _automatic.CheckedChanged += (_, _) =>
         {
-            _generation++; _pending = null; _awaitingScroll = false; _unchangedAttempts = 0;
+            _generation++; ResetStability(); _awaitingScroll = false; _unchangedAttempts = 0;
             _waitingForTarget = false; _targetWait.Reset();
             _scroller?.Dispose(); _scroller = null;
             if (_store is not null && !_paused && _automatic.Checked)
             {
-                _awaitingScroll = true; _scrollIssuedAt = Environment.TickCount64;
+                _awaitingScroll = true; _scrollIssuedAt = 0;
                 PrepareAutoScroll();
             }
         };
@@ -96,7 +112,7 @@ internal class ScrollCaptureForm : Form
             if (_busy || _store is null) return;
             try
             {
-                if (_store.Undo()) { _paused = true; _generation++; _pending = null; _awaitingScroll = false; _scroller?.Dispose(); _scroller = null; UpdateButtons(); SetStatus(T("Undone. Scroll back to the previous captured position, then resume.", "已撤销，请滚回上一段成功的位置后继续。")); }
+                if (_store.Undo()) { _paused = true; _generation++; ResetStability(); _awaitingScroll = false; _scroller?.Dispose(); _scroller = null; ShowAlignment(null); UpdateButtons(); SetStatus(T("Undone. Scroll back to the previous captured position, then resume.", "已撤销，请滚回上一段成功的位置后继续。")); }
             }
             catch (Exception ex) { Fail(ex); }
         };
@@ -153,7 +169,7 @@ internal class ScrollCaptureForm : Form
         {
             button.Bounds = new Rectangle(x, y, buttonWidth, height); x += buttonWidth + gap;
         }
-        _status.Bounds = new Rectangle(Px(12), Px(54), _card.Width - Px(24), _card.Height - Px(64));
+        _status.Bounds = new Rectangle(Px(12), Px(50), _card.Width - Px(24), _card.Height - Px(54));
     }
 
     protected override async void OnShown(EventArgs e)
@@ -207,67 +223,98 @@ internal class ScrollCaptureForm : Form
             if (_scroller?.CheckTarget() != true) { TargetUnavailable(); return; }
             if (_waitingForTarget)
             {
-                _waitingForTarget = false; _targetWait.Reset(); _pending = null;
+                _waitingForTarget = false; _targetWait.Reset(); ResetStability();
                 _host.Log("Automatic scroll target recovered; confirming frame before continuing.");
                 SetStatus(T("Target available again. Continuing capture.", "目标已恢复，正在继续截图。"));
             }
         }
         if (_automatic.Checked && !_awaitingScroll)
         {
-            if (_scroller is null || !_scroller.Step(_stepSize.Notches))
-            {
-                // A timed-out message may already have scrolled. Compare pixels before
-                // deciding whether another scroll is necessary, avoiding a doubled step.
-                if (_scroller?.CanRetry == true) { _awaitingScroll = true; _scrollIssuedAt = Environment.TickCount64; }
-                TargetUnavailable();
-                return;
-            }
-            _awaitingScroll = true; _scrollIssuedAt = Environment.TickCount64; _pending = null;
+            IssueScroll(_stepSize.Notches);
             return;
         }
-        if (_automatic.Checked && Environment.TickCount64 - _scrollIssuedAt < 420) return;
         _busy = true;
         var generation = _generation;
         try
         {
+            var sampleStarted = Stopwatch.GetTimestamp();
             using var frame = _host.CaptureRegion(_region);
+            var captureTime = Stopwatch.GetElapsedTime(sampleStarted);
             var previous = _store.LastSample;
             var pending = _pending;
+            var stableSamples = _stableSamples;
+            long? wheelElapsed = _automatic.Checked && _scrollIssuedAt != 0 ? Environment.TickCount64 - _scrollIssuedAt : null;
+            var estimatedOffset = _automatic.Checked ? _stepSize.EstimatedOffset : 0;
             var token = _lifetime.Token;
             var computation = await Task.Run(() =>
             {
                 token.ThrowIfCancellationRequested();
+                var samplingStarted = Stopwatch.GetTimestamp();
                 var sample = new FrameSample(frame);
-                var stable = pending is not null && FrameMatcher.Match(pending, sample, token).Kind == MatchKind.Unchanged;
-                var match = stable ? FrameMatcher.Match(previous, sample, token) : new FrameMatch(MatchKind.Unchanged);
-                var diagnosis = stable && match.Kind is MatchKind.Uncertain or MatchKind.Reverse ? FrameMatcher.Diagnose(previous, sample) : "";
-                return (Sample: sample, Stable: stable, Match: match, Diagnosis: diagnosis);
+                var samplingTime = Stopwatch.GetElapsedTime(samplingStarted);
+                // Compare each frame to the start of the stable run so small
+                // changes cannot accumulate across several equal-looking pairs.
+                var sameView = pending is not null && FrameMatcher.IsVisuallyUnchanged(pending, sample);
+                if (!sameView || stableSamples < StableSamplesRequired - 1)
+                    return (Sample: sample, SameView: sameView, Alignment: (FrameAlignment?)null, SamplingTime: samplingTime, MatchTime: TimeSpan.Zero);
+
+                // A wheel message can be delivered before the application paints.
+                // Wait for motion before counting a still view as an unsuccessful scroll.
+                if (wheelElapsed is < WheelResponseTimeoutMilliseconds && FrameMatcher.IsVisuallyUnchanged(previous, sample))
+                    return (Sample: sample, SameView: true, Alignment: (FrameAlignment?)null, SamplingTime: samplingTime, MatchTime: TimeSpan.Zero);
+
+                var matchStarted = Stopwatch.GetTimestamp();
+                FrameAlignment? alignment = FrameMatcher.Analyze(previous, sample, token);
+                if (alignment is { Match.Kind: MatchKind.Uncertain } failed &&
+                    failed.Search.Status is AlignmentStatus.Ambiguous or AlignmentStatus.NearbyUnverified or AlignmentStatus.HighError &&
+                    estimatedOffset > 0 && estimatedOffset <= sample.Height - FrameMatcher.MinimumOverlap(sample.Height) &&
+                    !FrameMatcher.HasOverlapDetail(previous, sample, estimatedOffset))
+                    alignment = failed with { Search = failed.Search with { Status = AlignmentStatus.LowTexture } };
+                return (Sample: sample, SameView: true, Alignment: alignment, SamplingTime: samplingTime,
+                    MatchTime: Stopwatch.GetElapsedTime(matchStarted));
             }, token);
             token.ThrowIfCancellationRequested();
             if (generation != _generation || IsDisposed) return;
-            _pending = computation.Sample;
-            if (!computation.Stable) return;
-            switch (computation.Match.Kind)
+            if (!computation.SameView)
+            {
+                _pending = computation.Sample;
+                _stableSamples = 1;
+                _uncertainFrames = 0;
+            }
+            else if (_stableSamples < StableSamplesRequired)
+                _stableSamples++;
+            if (computation.Alignment is not { } alignment) return;
+            switch (alignment.Match.Kind)
             {
                 case MatchKind.Forward:
                     _uncertainFrames = _unchangedAttempts = 0;
-                    if (!_store.Append(frame, computation.Sample, computation.Match.Offset))
+                    var writeStarted = Stopwatch.GetTimestamp();
+                    if (!_store.Append(frame, computation.Sample, alignment.Match.Offset))
                     {
                         _paused = true;
                         SetStatus(T("Image/cache limit reached. Finish this image to continue.", "已达到图像或缓存上限，请完成当前长图。"));
                     }
                     else
                     {
-                        if (_automatic.Checked) _stepSize.Observe(computation.Match.Offset);
-                        _host.Log($"Scroll capture appended: offset={computation.Match.Offset}; height={_store.Height}");
+                        var writeTime = Stopwatch.GetElapsedTime(writeStarted);
+                        if (_automatic.Checked) _stepSize.Observe(alignment.Match.Offset);
+                        var verification = alignment.Search.EdgeAgreement is { } agreement
+                            ? $"; sparse overlap verified; edge agreement={agreement:P1}; overlap error={alignment.Search.Verification:F3}"
+                            : alignment.Search.Verification is { } score
+                                ? $"; nearby offsets verified; overlap error={score:F3}" : "";
+                        var settleTime = wheelElapsed is { } elapsed ? $"; wheel to stable frame={elapsed} ms" : "";
+                        _host.Log($"Scroll capture appended: offset={alignment.Match.Offset}; height={_store.Height}{verification}{settleTime}; capture={(captureTime + computation.SamplingTime).TotalMilliseconds:F1} ms; match={computation.MatchTime.TotalMilliseconds:F1} ms; write={writeTime.TotalMilliseconds:F1} ms");
+                        ShowAlignment(alignment);
                         SetStatus(T("Captured. Continue, or finish.", "已拼接，可继续或完成。"));
                     }
                     _awaitingScroll = false;
+                    _scrollIssuedAt = 0;
                     break;
                 case MatchKind.Unchanged:
                     _uncertainFrames = 0;
                     if (_automatic.Checked)
                     {
+                        _stepSize.ConfirmPosition();
                         if (++_unchangedAttempts >= 3)
                         {
                             _paused = true;
@@ -280,15 +327,45 @@ internal class ScrollCaptureForm : Form
                 case MatchKind.Reverse:
                 case MatchKind.Uncertain:
                     if (++_uncertainFrames < 3) return;
+                    if (_automatic.Checked && alignment.Search.Status == AlignmentStatus.LowTexture && _stepSize.CanProbe)
+                    {
+                        _uncertainFrames = _unchangedAttempts = 0;
+                        var remaining = _stepSize.EstimatedOverlapAfterProbe;
+                        _host.Log($"Scroll capture probing for detail: estimated offset={_stepSize.EstimatedOffset}; estimated overlap after probe={remaining}; region={_region}");
+                        SetStatus(T($"Little detail. Probing one notch · Estimated overlap {remaining} px",
+                            $"特征不足，再滚一格 · 预计剩余重叠 {remaining} px",
+                            $"特徵不足，再捲一格 · 預計剩餘重疊 {remaining} px"));
+                        IssueScroll(1);
+                        break;
+                    }
                     _paused = true;
-                    _host.Log($"Scroll capture alignment rejected: region={_region}; kind={computation.Match.Kind}; {computation.Diagnosis}");
-                    SetStatus(T("Cannot align this frame. Scroll back to the last captured position, then resume.", "无法可靠拼接，请滚回最后成功的位置后继续。"));
+                    ShowAlignment(alignment);
+                    _host.Log($"Scroll capture alignment rejected: region={_region}; kind={alignment.Match.Kind}; {alignment.Search}");
+                    SetStatus(_automatic.Checked && alignment.Search.Status == AlignmentStatus.LowTexture && _stepSize.EstimatedOffset > 0
+                        ? T("Paused · Further scrolling may lose overlap. Scroll back to content with detail.",
+                            "已暂停 · 再滚动可能丢失重叠，请回到有特征的位置。", "已暫停 · 再捲動可能失去重疊，請回到有特徵的位置。")
+                        : AlignmentFailure(alignment.Search));
                     break;
             }
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Exception ex) { _paused = true; Fail(ex); }
         finally { EndWork(); }
+    }
+
+    private void IssueScroll(int notches)
+    {
+        var sent = _scroller?.Step(notches) == true;
+        // A timed-out message may already have scrolled. Count it against the
+        // overlap budget and sample before issuing another wheel message.
+        if (sent || _scroller?.CanRetry == true)
+        {
+            _stepSize.Issued(notches);
+            _awaitingScroll = true;
+            _scrollIssuedAt = Environment.TickCount64;
+            ResetStability();
+        }
+        if (!sent) TargetUnavailable();
     }
 
     private async Task FinishAsync()
@@ -332,7 +409,7 @@ internal class ScrollCaptureForm : Form
 
     private void TargetUnavailable()
     {
-        _pending = null;
+        ResetStability();
         if (_targetWait.ShouldWait(_scroller?.CanRetry == true, Environment.TickCount64))
         {
             if (!_waitingForTarget) _host.Log("Automatic scroll waiting: " + _scroller?.Failure);
@@ -344,6 +421,13 @@ internal class ScrollCaptureForm : Form
         _host.Log("Automatic scroll paused: " + _scroller?.Failure);
         UpdateButtons();
         SetStatus(T("Automatic scrolling paused. Restore the target, then resume; you can also use manual mode.", "自动滚动已暂停。请恢复目标窗口后继续，也可关闭自动滚动并手动滚动。"));
+    }
+
+    private void ResetStability()
+    {
+        _pending = null;
+        _stableSamples = 0;
+        _uncertainFrames = 0;
     }
 
     private void UpdateButtons()
@@ -359,17 +443,61 @@ internal class ScrollCaptureForm : Form
         _finish.Enabled = !_busy && _store is not null;
         _pause.Enabled = _store is not null;
     }
+
+    private void ShowAlignment(FrameAlignment? alignment)
+    {
+        _outline?.ShowAlignment(alignment);
+        if (alignment?.Search.Best is not { } best)
+        {
+            _status.Alignment = "";
+            return;
+        }
+
+        var search = alignment.Value.Search;
+        var reverse = alignment.Value.Match.Kind == MatchKind.Reverse;
+        string Candidate(AlignmentCandidate candidate) => $"{(reverse ? "−" : "+")}{candidate.Offset} px / {candidate.Score:F3}";
+        var overlap = $"{_region.Width} × {_region.Height - best.Offset} px";
+        var bestLabel = T("Best", "最佳");
+        var rivalLabel = T("Rival", "次选", "次選");
+        var overlapLabel = T("Overlap", "重叠", "重疊");
+        var rival = search.Rival is { } candidate ? $" · {rivalLabel} {Candidate(candidate)}" : "";
+        _status.Alignment = $"{bestLabel} {Candidate(best)}{rival} · {overlapLabel} {overlap}";
+    }
+
+    private string AlignmentFailure(AlignmentSearch search)
+    {
+        var limit = search.Limit?.ToString("F3");
+        return search.Status switch
+        {
+            AlignmentStatus.SizeChanged => T("Paused · Frame size changed", "已暂停 · 前后帧尺寸变动", "已暫停 · 前後幀尺寸變動"),
+            AlignmentStatus.LowTexture => T("Paused · Too little visual detail", "已暂停 · 画面纹理不足", "已暫停 · 畫面紋理不足"),
+            AlignmentStatus.NoCandidates => T("Paused · Selection too short for matching", "已暂停 · 选区高度不足以拼接", "已暫停 · 選區高度不足以拼接"),
+            AlignmentStatus.HighError => T($"Paused · Best error exceeds {limit}", $"已暂停 · 最佳误差超过 {limit}", $"已暫停 · 最佳誤差超過 {limit}"),
+            AlignmentStatus.Ambiguous or AlignmentStatus.RepaintAmbiguous when search.Rival is not null =>
+                T($"Paused · Rival error ≤ {limit}, ambiguous alignment", $"已暂停 · 次选误差 ≤ {limit}，位移有歧义", $"已暫停 · 次選誤差 ≤ {limit}，位移有歧義"),
+            AlignmentStatus.RepaintAmbiguous => T("Paused · Additional candidate needed to verify alignment", "已暂停 · 缺少次选，无法验证位移", "已暫停 · 缺少次選，無法驗證位移"),
+            AlignmentStatus.BroadPeak => T($"Paused · Adjacent offset error ≤ {limit}", $"已暂停 · 相邻位移误差 ≤ {limit}", $"已暫停 · 相鄰位移誤差 ≤ {limit}"),
+            AlignmentStatus.VerificationFailed => T($"Paused · Full overlap error {search.Verification:F3} > {limit}",
+                $"已暂停 · 全重叠区误差 {search.Verification:F3} > {limit}", $"已暫停 · 全重疊區誤差 {search.Verification:F3} > {limit}"),
+            AlignmentStatus.NearbyUnverified => T("Paused · Overlap segments disagree on the exact offset",
+                "已暂停 · 重叠区各段不足以确认精确位移", "已暫停 · 重疊區各段不足以確認精確位移"),
+            AlignmentStatus.Reverse => T("Paused · Reverse scrolling detected", "已暂停 · 检测到反向滚动", "已暫停 · 偵測到反向捲動"),
+            _ => T("Paused · Cannot align this frame", "已暂停 · 无法可靠拼接", "已暫停 · 無法可靠拼接")
+        };
+    }
+
     private void SetStatus(string text)
     {
         var state = _paused ? T("Paused", "已暂停", "已暫停") : T("Scrolling screenshot", "长截图", "捲動截圖");
         var metrics = _store is null ? state : $"{state}  ·  {_store.Width} × {_store.Height} px  ·  {_store.Count} " + T(_store.Count == 1 ? "strip" : "strips", "段", "段");
         if (_status.Metrics != metrics) _status.Metrics = metrics;
-        if (_status.Text != text)
+        if (_status.Text != text) _status.Text = text;
+        var accessible = string.Join(Environment.NewLine, new[] { metrics, _status.CaptureRange, _status.Alignment, text }.Where(line => line.Length > 0));
+        if (_status.AccessibleName != accessible)
         {
-            _status.Text = text; _tips.SetToolTip(_status, text);
+            _status.AccessibleName = accessible;
+            _tips.SetToolTip(_status, accessible);
         }
-        var accessible = metrics + ". " + text;
-        if (_status.AccessibleName != accessible) _status.AccessibleName = accessible;
     }
     private void Fail(Exception ex) { _host.Log("Scroll capture failed.", ex); SetStatus(ex.GetBaseException().Message); }
     public PluginImage? TakeResult() { var result = _result; _result = null; return result; }

@@ -22,6 +22,17 @@ internal static class Program
         if (args.Contains("--demo")) { Application.Run(new ScrollDemo()); return 0; }
         try
         {
+            if (args.Contains("--alignment-diagnostics"))
+            {
+                Algorithms();
+                FixedEdgeMatching();
+                AlignmentDiagnostics();
+                SparseOverlapMatching();
+                DistantRivalAfterNearbyVerification();
+                ScrollUi();
+                Console.WriteLine($"PASS: {_checks} scrolling alignment and UI checks.");
+                return 0;
+            }
             Algorithms();
             FixedEdgeMatching();
             IconAssets();
@@ -30,6 +41,9 @@ internal static class Program
             PluginPackageLifecycle();
             if (args.Contains("--live-catalog")) LivePluginCatalog().GetAwaiter().GetResult();
             InstallerChecks().GetAwaiter().GetResult();
+            AlignmentDiagnostics();
+            SparseOverlapMatching();
+            DistantRivalAfterNearbyVerification();
             CaptureLifecycle();
             ScrollTargetRecovery();
             ScrollUi();
@@ -59,6 +73,155 @@ internal static class Program
                 bands.Select((color, x) => bitmap.GetPixel(x, y).ToArgb() == color).All(matches => matches)),
                 $"text caret is a straight {width}-pixel stem at {scale:P0} scaling");
         }
+    }
+
+    private static void AlignmentDiagnostics()
+    {
+        static FrameAlignment Analyze(int width, int height, int offset, int brightness, int contentRows = int.MaxValue)
+        {
+            const int block = 16;
+            var random = new Random(0);
+            var anchors = new int[(height + offset) / block + 2, FrameSample.Columns];
+            for (var y = 0; y < anchors.GetLength(0); y++)
+            for (var x = 0; x < FrameSample.Columns; x++)
+                anchors[y, x] = random.Next(65, 151);
+
+            FrameSample Sample(int start, int adjustment)
+            {
+                var gray = new byte[height * FrameSample.Columns];
+                for (var y = 0; y < height; y++)
+                for (var x = 0; x < FrameSample.Columns; x++)
+                {
+                    var row = Math.Min(y + start, contentRows);
+                    var fraction = (row % block) / (double)block;
+                    gray[y * FrameSample.Columns + x] =
+                        (byte)(anchors[row / block, x] * (1 - fraction) + anchors[row / block + 1, x] * fraction + adjustment);
+                }
+                return new FrameSample(width, height, gray);
+            }
+
+            return FrameMatcher.Analyze(Sample(0, 0), Sample(offset, brightness));
+        }
+
+        const int height = 720, offset = 300, width = 1503;
+        var normal = Analyze(width, height, offset, 0);
+        Check(normal.Match == new FrameMatch(MatchKind.Forward, offset), "known displacement accepted");
+        foreach (var (w, h, shift) in new[] { (width, height, offset), (1963, 541, 150) })
+        {
+            var recovered = Analyze(w, h, shift, 3);
+            Check(recovered.Match == new FrameMatch(MatchKind.Forward, shift) &&
+                recovered.Search.Rival is { Offset: var rival } && Math.Abs(rival - shift) == 3 &&
+                recovered.Search.Verification is 3,
+                $"nearby candidate verified at the exact offset after a brightness change: {w}x{h}, {recovered}");
+        }
+        var insufficient = Analyze(width, height, offset, 3, offset + (height - offset) / 3);
+        Check(insufficient.Match.Kind == MatchKind.Uncertain && insufficient.Search.Status == AlignmentStatus.NearbyUnverified,
+            $"a single band cannot establish a precise offset: {insufficient}");
+        Check(FrameMatcher.MinimumOverlap(height) == 144, "diagnostic overlap limit is the matcher's limit");
+
+        using var outline = new CaptureOutline(new Rectangle(100, 100, width, height), Color.Blue);
+        const int joinRow = height - offset + 3;
+        outline.ShowAlignment(normal);
+        Check(outline.Region is { } live && !live.IsVisible(100, joinRow) && live.IsVisible(1, joinRow),
+            "live join markers are clipped to the outer rim");
+        var rejected = new FrameAlignment(new(MatchKind.Uncertain), new(AlignmentStatus.Ambiguous, new(offset, 3), new(303, 5.563), 6.3));
+        outline.ShowAlignment(rejected);
+        Check(outline.Region is { } paused && paused.IsVisible(100, joinRow) && !paused.IsVisible(100, joinRow + 12),
+            "paused diagnostics mark the join row without covering surrounding content");
+        outline.ShowAlignment(null);
+        Check(outline.Region is { } resumed && !resumed.IsVisible(100, joinRow),
+            "continuing clears the interior line before sampling resumes");
+    }
+
+    private static void SparseOverlapMatching()
+    {
+        const int width = 2067, height = 631, displacement = 300, rowHeight = 184;
+        const int columns = FrameSample.Columns;
+        static FrameSample LimitedDetail(int h)
+        {
+            var gray = new byte[h * FrameSample.Columns];
+            foreach (var row in new[] { 12, 21 })
+            foreach (var column in new[] { 8, 12 })
+                gray[row * FrameSample.Columns + column] = 100;
+            return new FrameSample(500, h, gray);
+        }
+        var small = LimitedDetail(55);
+        var tall = LimitedDetail(400);
+        Check(FrameMatcher.HasOverlapDetail(small, small, 0) && !FrameMatcher.HasOverlapDetail(tall, tall, 0),
+            "same retained edges are evaluated relative to the overlap area");
+        var blank = new FrameSample(500, height, new byte[height * columns]);
+        Check(FrameMatcher.IsVisuallyUnchanged(blank, blank) && FrameMatcher.Analyze(blank, blank).Search.Status == AlignmentStatus.LowTexture,
+            "stable blank frames provide no evidence of the end of scrolling");
+        foreach (var repeating in new[] { false, true })
+        {
+            var document = new byte[(height + displacement) * columns];
+            Array.Fill(document, (byte)245);
+            var random = new Random(651);
+            var pattern = new int[6, 12];
+            for (var top = 0; top < height + displacement; top += rowHeight)
+            {
+                if (top == 0 || !repeating)
+                    for (var line = 0; line < pattern.GetLength(0); line++)
+                    for (var x = 0; x < pattern.GetLength(1); x++)
+                        pattern[line, x] = random.Next(-3, 4);
+                for (var line = 0; line < pattern.GetLength(0); line++)
+                for (var x = 0; x < pattern.GetLength(1); x++)
+                {
+                    var y = top + 18 + line * 24 + pattern[line, x];
+                    if (y + 2 >= height + displacement) continue;
+                    document[y * columns + x + 7] = 135;
+                    document[(y + 1) * columns + x + 7] = 135;
+                }
+            }
+
+            var first = new FrameSample(width, height, document[..(height * columns)]);
+            var next = new FrameSample(width, height, document[(displacement * columns)..].Select(value => (byte)(value + 3)).ToArray());
+            var result = FrameMatcher.Analyze(first, next);
+            if (repeating)
+                Check(result.Match.Kind == MatchKind.Uncertain, $"identical repeated edges cannot break an offset tie: {result}");
+            else
+                Check(result.Match == new FrameMatch(MatchKind.Forward, displacement) &&
+                    result.Search.Rival is { Offset: var rival } && Math.Abs(rival - displacement) > 100 && result.Search.EdgeAgreement > .70,
+                    $"sparse text edges distinguish the real offset from a similarly laid out row: {result}");
+        }
+    }
+
+    private static void DistantRivalAfterNearbyVerification()
+    {
+        const int width = 1575, height = 632, displacement = 300, itemHeight = 183;
+        const int columns = FrameSample.Columns;
+        var document = new byte[(height + displacement) * columns];
+        for (var y = 0; y < height + displacement; y++)
+        for (var x = 0; x < columns; x++)
+        {
+            var value = 235;
+            if (x % 3 == 0 && x >= 5 && x < 43)
+                value -= y * 12 / itemHeight + (int)(4 * Math.Sin((y + 2 * x) / 9.0));
+            if (y % itemHeight == 22 && x >= 5 && x < 44 && x % 3 != 0)
+                value -= 25;
+            document[y * columns + x] = (byte)value;
+        }
+
+        // Each item has similarly placed text, with small differences in its
+        // exact edges. The smooth columns give the coarse search a nearby rival.
+        var random = new Random(2);
+        for (var top = 0; top < height + displacement; top += itemHeight)
+        for (var line = 0; line < 4; line++)
+        for (var x = 6; x < 38; x += 2)
+        {
+            if (x % 3 == 0) continue;
+            var y = top + 35 + line * 23 + random.Next(-6, 7);
+            if (y + 2 >= height + displacement) continue;
+            document[y * columns + x] = 130;
+            document[(y + 1) * columns + x] = 130;
+        }
+
+        var first = new FrameSample(width, height, document[..(height * columns)]);
+        var next = new FrameSample(width, height, document[(displacement * columns)..].Select(value => (byte)(value + 2)).ToArray());
+        var result = FrameMatcher.Analyze(first, next);
+        Check(result.Match == new FrameMatch(MatchKind.Forward, displacement) &&
+            result.Search.Rival is { Offset: 231 } && result.Search.Verification is 2 && result.Search.EdgeAgreement is 1,
+            $"a distant rival found after nearby verification gets checked against the sparse content edges: {result}");
     }
 
     private static void IconAssets()
@@ -235,18 +398,27 @@ internal static class Program
     private static void CaptureLifecycle()
     {
         var pace = new ScrollStepSize(800);
+        static void ObserveStep(ScrollStepSize size, int offset)
+        {
+            size.Issued(size.Notches);
+            size.Observe(offset);
+        }
         Check(pace.Notches == 1, "automatic scrolling calibrates with one notch");
+        pace.Issued(1);
+        Check(!pace.CanProbe, "an unmeasured wheel distance cannot budget extra scrolling");
         pace.Observe(120);
         Check(pace.Notches == 3, "calibrated scrolling advances close to half the viewport");
-        pace.Observe(360);
+        ObserveStep(pace, 360);
         Check(pace.Notches == 3, "stable scroll pace retains overlap");
-        pace.Observe(600);
+        ObserveStep(pace, 600);
         Check(pace.Notches == 2, "larger-than-expected scrolling reduces next step");
-        pace.Reset(); pace.Observe(10); pace.Observe(30); pace.Observe(50);
+        pace.Reset(); ObserveStep(pace, 10); ObserveStep(pace, 30); ObserveStep(pace, 50);
         Check(pace.Notches == 6, "small system scroll distance has bounded acceleration");
         pace.Reset(); Check(pace.Notches == 1, "resume recalibrates scroll distance");
-        var shortViewport = new ScrollStepSize(180); shortViewport.Observe(120);
+        var shortViewport = new ScrollStepSize(180); ObserveStep(shortViewport, 120);
         Check(shortViewport.Notches == 1, "short viewport keeps small scroll steps");
+        shortViewport.Issued(1);
+        Check(!shortViewport.CanProbe, "short viewport has no room for another notch");
         var target = new FakeScrollTarget();
         using (var controller = new AutoScrollController(target))
         {
@@ -360,7 +532,7 @@ internal static class Program
             Tick(session);
             Check(Value<bool>(session, "_awaitingScroll") && !Value<bool>(session, "_paused"), "timed-out wheel may already have been delivered");
             Field(session, "_scrollIssuedAt", Environment.TickCount64 - 1000);
-            Tick(session); Tick(session);
+            Tick(session); Tick(session); Tick(session);
             Check(host.Target.Steps == 1 && Value<ScrollImageStore>(session, "_store").Height == 150,
                 "delivered timeout is stitched once without retrying scroll or skipping content");
             var finish = Descendants(session).OfType<SnipLite.ScrollCapture.ScrollButton>().Single(b => b.Glyph == "finish");
@@ -368,6 +540,76 @@ internal static class Program
             Field(session, "_scrollIssuedAt", Environment.TickCount64 - 1000);
             Tick(session); Tick(session);
             Check(enabledChanges == 0, "sampling does not flash finish button enabled state every timer tick");
+        }
+        foreach (var detailReturns in new[] { true, false })
+        {
+            var tallRegion = new Rectangle(0, 0, 160, 250);
+            using var host = new RecoveryHost(source);
+            using var session = new ScrollCaptureForm(host, tallRegion, CancellationToken.None, host.Target);
+            using var first = host.CaptureRegion(tallRegion);
+            var store = new ScrollImageStore(first);
+            Field(session, "_store", store);
+            using var scrolling = new AutoScrollController(host.Target);
+            scrolling.Start();
+            Field(session, "_scroller", scrolling);
+            host.Target.OnStep = () =>
+            {
+                host.Offset += host.Target.LastNotches * 50;
+                host.Blank = host.Target.Steps == 2 || host.Target.Steps == 3 && !detailReturns;
+                return true;
+            };
+
+            void Samples(int count)
+            {
+                Field(session, "_scrollIssuedAt", Environment.TickCount64 - 1000);
+                for (var i = 0; i < count; i++) Tick(session);
+            }
+
+            Tick(session); Samples(3);
+            Check(store.Height == 300, "first wheel establishes a 50 px per notch calibration");
+            Tick(session); Samples(5);
+            Check(host.Target.Steps == 3 && host.Target.LastNotches == 1 && store.Height == 300,
+                "blank frame triggers one notch while the accepted image is retained");
+            Samples(detailReturns ? 3 : 5);
+            if (detailReturns)
+            {
+                Check(store.Height == 450 && !Value<bool>(session, "_paused"), "new detail confirms the whole 150 px movement");
+                using var result = store.Build();
+                AssertPixels(result, source, 450);
+            }
+            else
+            {
+                Check(store.Height == 300 && Value<bool>(session, "_paused") && host.Target.Steps == 3,
+                    "persistent blank stops at the overlap limit without appending or issuing another notch");
+            }
+        }
+
+        using (var host = new RecoveryHost(source))
+        using (var session = new ScrollCaptureForm(host, new Rectangle(0, 0, 160, 120), CancellationToken.None, host.Target))
+        {
+            using var first = host.CaptureRegion(new Rectangle(0, 0, 160, 120));
+            var store = new ScrollImageStore(first);
+            Field(session, "_store", store);
+            using var scrolling = new AutoScrollController(host.Target);
+            scrolling.Start();
+            Field(session, "_scroller", scrolling);
+            Tick(session);
+            Tick(session); Tick(session); Tick(session);
+            Check(host.Target.Steps == 1 && Value<bool>(session, "_awaitingScroll") && Value<int>(session, "_unchangedAttempts") == 0,
+                "the old frame remaining visible does not trigger another wheel or count toward end of page");
+            host.Offset = 9;
+            Tick(session); Tick(session);
+            host.Offset = 24;
+            Tick(session); Tick(session);
+            Check(store.Count == 1, "movement restarts the stability check before any append");
+            Field(session, "_scrollIssuedAt", Environment.TickCount64);
+            Tick(session);
+            Check(store.Count == 2 && store.Height == 144 &&
+                host.Messages.Any(message => message.Contains("wheel to stable frame=") &&
+                    message.Contains("capture=") && message.Contains("match=") && message.Contains("write=")),
+                "a stable changed frame stitches immediately and reports stage timings");
+            using var result = store.Build();
+            AssertPixels(result, source, 144);
         }
     }
 
@@ -392,13 +634,23 @@ internal static class Program
     {
         internal readonly FakeScrollTarget Target = new();
         internal int Offset, Captures;
+        internal bool Blank;
+        internal List<string> Messages { get; } = [];
         public string Language => "en-US";
-        public Bitmap CaptureRegion(Rectangle region) { Captures++; return source.Clone(new Rectangle(0, Offset, region.Width, region.Height), PixelFormat.Format32bppArgb); }
+        public Bitmap CaptureRegion(Rectangle region)
+        {
+            Captures++;
+            if (!Blank) return source.Clone(new Rectangle(0, Offset, region.Width, region.Height), PixelFormat.Format32bppArgb);
+            var frame = new Bitmap(region.Width, region.Height, PixelFormat.Format32bppArgb);
+            using var graphics = Graphics.FromImage(frame);
+            graphics.Clear(Color.White);
+            return frame;
+        }
         public Task<Rectangle?> SelectRegionAsync(CancellationToken token) => Task.FromResult<Rectangle?>(null);
         public Task<PluginImage?> SelectImageAsync(CancellationToken token) => Task.FromResult<PluginImage?>(null);
         public Task PreviewImageAsync(PluginImage image, CancellationToken token) => Task.CompletedTask;
         public void StyleWindow(Form form) { }
-        public void Log(string message, Exception? exception = null) { }
+        public void Log(string message, Exception? exception = null) => Messages.Add(message);
         public void Dispose() { }
     }
 
@@ -446,6 +698,17 @@ internal static class Program
                     form.DrawToBitmap(snapshot, new Rectangle(Point.Empty, form.Size));
                     snapshot.Save(Path.Combine(artifacts, $"scroll-{language}-{(dark ? "dark" : "light")}-{(paused ? "paused" : "capturing")}.png"));
                 }
+                var rejected = new AlignmentSearch(AlignmentStatus.Ambiguous, new(200, 2.583), new(195, 4.672), 5.633);
+                typeof(ScrollCaptureForm).GetMethod("ShowAlignment", flags)!.Invoke(form, new object[] { new FrameAlignment(new(MatchKind.Uncertain), rejected) });
+                var reason = (string)typeof(ScrollCaptureForm).GetMethod("AlignmentFailure", flags)!.Invoke(form, new object[] { rejected })!;
+                typeof(ScrollCaptureForm).GetMethod("SetStatus", flags)!.Invoke(form, new object[] { reason });
+                var status = Descendants(form).OfType<ScrollStatus>().Single();
+                var textWidth = status.Width - (int)(20 * form.DeviceDpi / 96f) - (int)(10 * form.DeviceDpi / 96f);
+                foreach (var line in new[] { status.CaptureRange, status.Alignment, status.Text })
+                    Check(TextRenderer.MeasureText(line, status.Font).Width <= textWidth, $"diagnostic line fits {language}: {line}");
+                using var diagnostic = new Bitmap(form.Width, form.Height);
+                form.DrawToBitmap(diagnostic, new Rectangle(Point.Empty, form.Size));
+                diagnostic.Save(Path.Combine(artifacts, $"scroll-{language}-{(dark ? "dark" : "light")}-alignment.png"));
                 Check(!typeof(ScrollCaptureForm).Assembly.GetReferencedAssemblies().Any(a => a.Name == "SnipLite"), "plugin UI has no host implementation dependency");
             }
         }
@@ -1002,6 +1265,32 @@ internal static class Program
 
         try
         {
+            var bundledManifest = PluginManifest.Read(Path.Combine(BundledScrollPlugin.Prepare(cache), "plugin.json"));
+            if (Version.Parse(entry.Version) <= Version.Parse(bundledManifest.Version))
+            {
+                using (var plugins = Open())
+                {
+                    var bundled = plugins.Records.Single();
+                    plugins.SetHotkey(commandId, shortcut);
+                    plugins.Uninstall(bundled);
+                }
+                using (var plugins = Open())
+                {
+                    Check(plugins.Records.Count == 0, "the bundled plugin was removed");
+                    await plugins.InstallFromCatalogAsync(entry, CancellationToken.None);
+                }
+                using (var plugins = Open())
+                {
+                    var installed = plugins.Records.Single();
+                    Check(!installed.Bundled && installed.Manifest?.Version == entry.Version && plugins.Hotkey(commandId) == shortcut,
+                        "the published package installs when the bundled version is already current");
+                    plugins.SetEnabled(installed, true);
+                    Check(installed.Loaded && plugins.Commands.Any(command => command.Id == commandId), "the published package loads and registers its command");
+                }
+                Console.WriteLine($"Verified live catalog and plugin release {entry.Version}.");
+                return;
+            }
+
             using (var plugins = Open())
             {
                 var bundled = plugins.Records.Single();

@@ -1,9 +1,9 @@
 {
   "id": "sniplite.scroll-capture",
   "name": "Scroll capture / 长截图",
-  "version": "0.1.6",
+  "version": "0.1.8",
   "apiVersion": 1,
-  "minHostVersion": "0.3.14",
+  "minHostVersion": "0.3.16",
   "entryAssembly": "SnipLite.ScrollCapture.dll",
   "entryType": "SnipLite.ScrollCapture.ScrollCapturePlugin",
   "architecture": "any",

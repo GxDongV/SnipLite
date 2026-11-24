@@ -65,12 +65,37 @@ internal sealed class ScrollTargetWait
 /// <summary>Calibrates one small step, then targets half a viewport of overlap-preserving movement.</summary>
 internal sealed class ScrollStepSize(int viewportHeight)
 {
+    private double _pixelsPerNotch;
+    private double _upperPixelsPerNotch;
+    private int _pendingNotches;
     public int Notches { get; private set; } = 1;
-    public void Reset() => Notches = 1;
+    public bool CanProbe => _pendingNotches > 0 && _upperPixelsPerNotch > 0 &&
+        EstimatedOverlapAfterProbe >= FrameMatcher.MinimumOverlap(viewportHeight);
+    public int EstimatedOffset => (int)Math.Round(_pendingNotches * _pixelsPerNotch);
+    public int EstimatedOverlapAfterProbe => viewportHeight - (int)Math.Ceiling((_pendingNotches + 1) * _upperPixelsPerNotch);
+
+    public void Reset()
+    {
+        Notches = 1;
+        _pixelsPerNotch = _upperPixelsPerNotch = 0;
+        ConfirmPosition();
+    }
+
+    public void Issued(int notches) => _pendingNotches += notches;
+    public void ConfirmPosition() => _pendingNotches = 0;
+
     public void Observe(int offset)
     {
-        if (offset <= 0) return;
-        var desired = Math.Clamp((int)((long)viewportHeight * Notches / (2L * offset)), 1, 6);
+        if (offset <= 0 || _pendingNotches == 0) return;
+        if (_pendingNotches == Notches || _pixelsPerNotch == 0 || offset > EstimatedOffset)
+        {
+            _pixelsPerNotch = (double)offset / _pendingNotches;
+            // Keep a margin for variable wheel distances. Measure longer steps over
+            // all their notches and keep earlier high estimates for this session.
+            _upperPixelsPerNotch = Math.Max(_upperPixelsPerNotch, _pixelsPerNotch * 1.1);
+        }
+        ConfirmPosition();
+        var desired = Math.Clamp((int)(viewportHeight / (2 * _pixelsPerNotch)), 1, 6);
         Notches = Math.Min(Notches + 2, desired);
     }
 }

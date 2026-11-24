@@ -143,8 +143,14 @@ internal sealed class ScrollStatus : Control
 {
     private readonly Bitmap _icon = ScrollDrawing.LoadIcon();
     private string _metrics = "";
+    private string _captureRange = "";
+    private string _alignment = "";
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     internal string Metrics { get => _metrics; set { _metrics = value; Invalidate(); } }
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    internal string CaptureRange { get => _captureRange; set { _captureRange = value; Invalidate(); } }
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    internal string Alignment { get => _alignment; set { if (_alignment != value) { _alignment = value; Invalidate(); } } }
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     internal bool Paused { get; set; }
     public ScrollStatus() { DoubleBuffered = true; ResizeRedraw = true; TabStop = false; AccessibleRole = AccessibleRole.StaticText; }
@@ -155,10 +161,20 @@ internal sealed class ScrollStatus : Control
         g.Clear(palette.Card);
         var iconSize = (int)(20 * scale); var gap = (int)(10 * scale);
         g.DrawImage(_icon, new Rectangle(0, 0, iconSize, iconSize));
-        var left = iconSize + gap; var headingHeight = (int)(22 * scale);
-        TextRenderer.DrawText(g, Metrics, Font, new Rectangle(left, 0, Width - left, headingHeight), Paused ? palette.Muted : palette.Text,
-            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-        TextRenderer.DrawText(g, Text, Font, new Rectangle(left, headingHeight + (int)(2 * scale), Width - left, Height - headingHeight - (int)(2 * scale)), palette.Muted,
+        var left = iconSize + gap;
+        var lineHeight = (int)Math.Round(17 * scale);
+        var y = 0;
+        void Line(string text, Color color)
+        {
+            if (text.Length == 0) return;
+            TextRenderer.DrawText(g, text, Font, new Rectangle(left, y, Width - left, lineHeight), color,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            y += lineHeight;
+        }
+        Line(Metrics, Paused ? palette.Muted : palette.Text);
+        Line(CaptureRange, palette.Muted);
+        Line(Alignment, palette.Text);
+        TextRenderer.DrawText(g, Text, Font, new Rectangle(left, y, Width - left, Height - y), palette.Muted,
             TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
     }
     protected override void Dispose(bool disposing) { if (disposing) _icon.Dispose(); base.Dispose(disposing); }
