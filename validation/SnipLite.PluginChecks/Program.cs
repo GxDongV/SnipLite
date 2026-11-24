@@ -840,7 +840,7 @@ internal static class Program
         using var input = new PluginImage(new Bitmap(64, 400));
         var settings = new AppSettings();
         var host = new PluginHostServices(settings, (_, _) => { });
-        using var preview = new ScrollResultPreview(input, host, CancellationToken.None)
+        using var preview = new PluginImagePreview(input, settings, (_, _) => { }, host, null, CancellationToken.None)
         { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000) };
         var shown = false;
         var topmost = false;
@@ -853,25 +853,28 @@ internal static class Program
                 shown = true;
                 topmost = preview.TopMost;
                 var toolbar = Descendants(preview).OfType<ToolStrip>().Single();
-                var actions = toolbar.Items.OfType<ScrollPreviewButton>().ToArray();
-                iconsFit = actions.Length == 8 && actions.All(button =>
+                var actions = toolbar.Items.OfType<ToolStripButton>().ToArray();
+                iconsFit =
+                    actions.Select(button => button.Name).SequenceEqual(
+                        new[] { "copy", "save", "fit-width", "fit-image", "actual", "zoom-out", "zoom-in" }) &&
+                    actions.All(button =>
                     button.DisplayStyle == ToolStripItemDisplayStyle.Image &&
                     !string.IsNullOrWhiteSpace(button.AccessibleName) &&
                     button.AccessibleName == button.ToolTipText &&
                     toolbar.ClientRectangle.Contains(button.Bounds));
-                var viewport = Descendants(preview).OfType<ScrollResultViewport>().Single();
-                var startingZoom = viewport.ScaleFactor;
+                var viewport = Descendants(preview).OfType<ZoomImageViewport>().Single();
+                var startingZoom = viewport.Zoom;
                 actions.Single(button => button.Name == "zoom-in").PerformClick();
-                zoomWorks = viewport.ScaleFactor > startingZoom;
+                zoomWorks = viewport.Zoom > startingZoom;
                 actions.Single(button => button.Name == "fit-width").PerformClick();
-                zoomWorks &= Math.Abs(viewport.ScaleFactor - startingZoom) < .00001;
+                zoomWorks &= Math.Abs(viewport.Zoom - startingZoom) < .00001;
             }
             finally { preview.BeginInvoke(preview.Close); }
         };
-        preview.ShowResult();
+        preview.ShowDialog();
         Check(shown && topmost, "the first visible preview is raised above other windows");
-        Check(iconsFit, "the plugin preview shows eight accessible icon-only buttons without overflow");
-        Check(zoomWorks, "the plugin preview icons keep their zoom and fit actions");
+        Check(iconsFit, "the shared preview shows seven accessible icon buttons without overflow");
+        Check(zoomWorks, "the shared preview icons keep their zoom and fit actions");
     }
 
     private static void PreviewUi()
@@ -907,9 +910,10 @@ internal static class Program
                 {
                     form.Show(); Application.DoEvents();
                     var view = Descendants(form).OfType<ZoomImageViewport>().Single();
-                    var tools = Descendants(form).OfType<FluentToolbar>().Single();
-                    var buttons = Descendants(form).OfType<FluentToolbarButton>().ToArray();
-                    FluentToolbarButton Button(string icon) => buttons.Single(b => b.IconId == icon);
+                    var tools = Descendants(form).OfType<ToolStrip>().Single();
+                    ToolStripButton Button(string icon) => (ToolStripButton)tools.Items[icon]!;
+                    ToolStripMenuItem MenuItem(string icon) => view.ContextMenuStrip!.Items.OfType<ToolStripMenuItem>()
+                        .Single(item => Equals(item.Tag, "fluent:" + icon));
                     Check(view.FitMode == ImageFitMode.Width && view.Zoom <= 1 && view.AutoScrollMinSize.Height > view.Height, "long preview opens at readable fit width");
                     Check(view.ImageBounds.Width <= view.ClientSize.Width, "fit width avoids horizontal overflow");
                     view.Fit(ImageFitMode.Image); Application.DoEvents();
@@ -934,16 +938,16 @@ internal static class Program
                     typeof(Control).GetMethod("OnMouseMove", flags)!.Invoke(view, new object[] { new MouseEventArgs(MouseButtons.Left, 0, 210, 200, 0) });
                     typeof(Control).GetMethod("OnMouseUp", flags)!.Invoke(view, new object[] { new MouseEventArgs(MouseButtons.Left, 1, 210, 200, 0) });
                     Check(view.AutoScrollPosition.X < startScroll.X && view.AutoScrollPosition.Y < startScroll.Y, "drag pans long image horizontally and vertically");
-                    Button("pin").PerformClick(); Button("copy").PerformClick();
+                    MenuItem("pin").PerformClick(); Button("copy").PerformClick();
                     Check(published.SequenceEqual(new[] { (new Size(800, 6000), true), (new Size(800, 6000), false) }), "zoom preserves original pixels for pin and copy");
-                    Button("crop").PerformClick(); Application.DoEvents();
+                    MenuItem("crop").PerformClick(); Application.DoEvents();
                     var numbers = Descendants(form).OfType<NumericUpDown>().ToArray();
                     numbers[0].Value = 100; numbers[1].Value = 200;
                     Descendants(form).OfType<FluentButton>().Single().PerformClick();
                     Button("copy").PerformClick();
                     Check(published.Last() == (new Size(800, 5700), false), "crop exports pixel dimensions independently of zoom");
                     Check(input.Image.Size == new Size(800, 6000), "preview crop leaves borrowed source intact");
-                    Button("crop").PerformClick(); Button("fit-width").PerformClick(); Application.DoEvents();
+                    MenuItem("crop").PerformClick(); Button("fit-width").PerformClick(); Application.DoEvents();
                     var message = Message.Create(form.Handle, 0x100, 0, 0);
                     var keyArgs = new object[] { message, Keys.Control | Keys.D0 };
                     Check((bool)typeof(PluginImagePreview).GetMethod("ProcessCmdKey", flags)!.Invoke(form, keyArgs)! && view.Zoom == 1, "Ctrl+0 resets actual size");
@@ -960,19 +964,13 @@ internal static class Program
                     {
                         if (small) form.Size = form.MinimumSize;
                         Button("fit-width").PerformClick(); Application.DoEvents();
-                        foreach (Control control in tools.Controls)
-                            Check(tools.ClientRectangle.Contains(control.Bounds), "preview toolbar items stay inside toolbar on resize");
+                        foreach (ToolStripItem item in tools.Items)
+                            Check(tools.ClientRectangle.Contains(item.Bounds), "preview toolbar items stay inside toolbar on resize");
                         Check(!view.Bounds.IntersectsWith(tools.Bounds), "preview toolbar leaves image viewport clear");
-                        var minimize = Button("minimize");
-                        var maximize = Button("maximize");
-                        var close = Button("close");
-                        Check(close.Right <= form.ClientSize.Width && close.Right >= form.ClientSize.Width - close.Width &&
-                            minimize.Right == maximize.Left && maximize.Right == close.Left && close.Bottom <= tools.Top,
-                            "preview caption actions stay grouped on the right after resizing");
-                        using var snapshot = new Bitmap(form.Width, form.Height);
+                            using var snapshot = new Bitmap(form.Width, form.Height);
                         form.DrawToBitmap(snapshot, new Rectangle(Point.Empty, form.Size));
                         snapshot.Save(Path.Combine(artifacts, $"preview-{language}-{(dark ? "dark" : "light")}-{(small ? "small" : "normal")}.png"));
-                        Button("crop").PerformClick(); Application.DoEvents();
+                        MenuItem("crop").PerformClick(); Application.DoEvents();
                         var cropPanel = (FlowLayoutPanel)typeof(PluginImagePreview).GetField("_cropPanel", flags)!.GetValue(form)!;
                         Check(cropPanel.Visible && !cropPanel.Bounds.IntersectsWith(view.Bounds), "crop panel reserves space above image");
                         foreach (Control control in cropPanel.Controls) Check(cropPanel.ClientRectangle.Contains(control.Bounds), "crop editors fit narrow preview");
@@ -984,24 +982,20 @@ internal static class Program
                             form.DrawToBitmap(cropSnapshot, new Rectangle(Point.Empty, form.Size));
                             cropSnapshot.Save(Path.Combine(artifacts, $"preview-crop-{(dark ? "dark" : "light")}.png"));
                         }
-                        Button("crop").PerformClick(); Application.DoEvents();
+                        MenuItem("crop").PerformClick(); Application.DoEvents();
                     }
-                    Check(!string.IsNullOrEmpty(Button("pin").AccessibleName) && !string.IsNullOrEmpty(Button("save").AccessibleName), "toolbar icon actions retain accessible names");
-                    var hitTest = typeof(PluginImagePreview).GetMethod("FrameHitTest", flags)!;
-                    Check((int)hitTest.Invoke(form, new object[] { new Point(1, 1) })! == 13 &&
-                        (int)hitTest.Invoke(form, new object[] { new Point(100, 15) })! == 2 &&
-                        (int)hitTest.Invoke(form, new object[] { new Point(100, view.Top + 15) })! == 1,
-                        "custom preview frame preserves edge resizing, title drag and image input");
-                    Button("maximize").PerformClick(); Application.DoEvents();
-                    Check(form.WindowState == FormWindowState.Maximized && Button("restore").Visible,
-                        "preview can maximize and offers restore");
+                    Check(form.FormBorderStyle == FormBorderStyle.Sizable && form.MinimizeBox && form.MaximizeBox && form.ControlBox,
+                        "preview uses native window sizing and caption controls");
+                    form.WindowState = FormWindowState.Maximized; Application.DoEvents();
+                    Check(form.WindowState == FormWindowState.Maximized, "preview can maximize");
                     var screen = Screen.FromHandle(form.Handle);
                     Check(screen.WorkingArea.Contains(form.RectangleToScreen(form.ClientRectangle)),
                         "maximized preview client fits the monitor work area");
-                    Button("restore").PerformClick(); Application.DoEvents();
+                    form.WindowState = FormWindowState.Normal; Application.DoEvents();
                     Check(form.WindowState == FormWindowState.Normal, "preview restores from maximized");
-                    Button("close").PerformClick();
-                    Check(form.IsDisposed, "preview close caption action closes the window");
+                    keyArgs[1] = Keys.Escape;
+                    Check((bool)typeof(PluginImagePreview).GetMethod("ProcessCmdKey", flags)!.Invoke(form, keyArgs)! && form.IsDisposed,
+                        "Escape closes the preview");
                 }
                 Check(input.Image.GetPixel(10, 10).A == 255, "preview disposal does not dispose source image");
             }

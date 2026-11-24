@@ -61,6 +61,7 @@ internal static class FluentIcons
                 case "mask":
                     Box(3, 5, 18, 14, 2); Line(6, 16, 16, 6); Line(10, 19, 20, 9); break;
                 case "fit-image": Corners(); Box(8, 6, 8, 12, 1); break;
+                case "actual": Corners(); Box(8, 8, 8, 8, 1); break;
                 case "fit-width":
                     Line(3, 4, 3, 20); Line(21, 4, 21, 20); Line(5, 12, 19, 12);
                     Lines(new(8, 9), new(5, 12), new(8, 15)); Lines(new(16, 9), new(19, 12), new(16, 15)); break;
