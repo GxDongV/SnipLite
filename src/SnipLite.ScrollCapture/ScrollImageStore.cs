@@ -16,6 +16,7 @@ internal sealed class ScrollImageStore : IDisposable
     public int Width { get; }
     public int Height { get; private set; }
     public int Count => _strips.Count;
+    public Padding FixedEdges { get; private set; }
     public FrameSample LastSample => _lastSample;
     public string DirectoryPath => _directory;
 
@@ -30,13 +31,29 @@ internal sealed class ScrollImageStore : IDisposable
         catch { Dispose(); throw; }
     }
 
-    public bool CanAppend(int height) => height > 0 && _strips.Count < MaxSegments && (long)Height + height <= MaxHeight && (long)Width * (Height + (long)height) <= MaxPixels;
-
-    public bool Append(Bitmap current, FrameSample sample, int offset)
+    public bool CanAppend(int height)
     {
-        if (current.Width != Width || sample.Width != Width || current.Height != sample.Height || offset >= current.Height || !CanAppend(offset)) return false;
-        using var strip = current.Clone(new Rectangle(0, current.Height - offset, Width, offset), PixelFormat.Format32bppArgb);
-        return Write(strip, offset, sample);
+        var total = (long)Height + height;
+        return height > 0 && Count < MaxSegments && total <= MaxHeight && Width * total <= MaxPixels;
+    }
+
+    internal Bitmap ReadFirstFrame() => new(_strips[0].Path);
+
+    public bool Append(Bitmap current, FrameSample sample, int offset, Padding? confirmedEdges = null)
+    {
+        if (current.Width != Width || sample.Width != Width || current.Height != sample.Height ||
+            sample.Height != _lastSample.Height || offset <= 0 || offset >= current.Height) return false;
+
+        var edges = FixedEdges;
+        if (Count == 1 && confirmedEdges is { } firstEdges) edges = firstEdges;
+        var bodyHeight = current.Height - edges.Vertical;
+        if (offset >= bodyHeight || !CanAppend(offset)) return false;
+        // Cache the footer below each strip so Undo can restore the right footer.
+        using var strip = current.Clone(new Rectangle(0, current.Height - edges.Bottom - offset,
+            Width, offset + edges.Bottom), PixelFormat.Format32bppArgb);
+        if (!Write(strip, offset, sample)) return false;
+        FixedEdges = edges;
+        return true;
     }
 
     private bool Write(Bitmap strip, int height, FrameSample sample)
@@ -60,7 +77,9 @@ internal sealed class ScrollImageStore : IDisposable
         var last = _strips[^1]; var previous = _strips[^2];
         var sample = new FrameSample(Width, previous.FrameHeight, File.ReadAllBytes(previous.Path + ".sample"));
         File.Delete(last.Path); File.Delete(last.Path + ".sample");
-        _strips.RemoveAt(_strips.Count - 1); Height -= last.Height; _cacheBytes -= last.Bytes; _lastSample = sample; return true;
+        _strips.RemoveAt(_strips.Count - 1); Height -= last.Height; _cacheBytes -= last.Bytes; _lastSample = sample;
+        if (Count == 1) FixedEdges = Padding.Empty;
+        return true;
     }
 
     public Bitmap Build(CancellationToken token = default)
@@ -69,12 +88,26 @@ internal sealed class ScrollImageStore : IDisposable
         try
         {
             using var graphics = Graphics.FromImage(result);
+            graphics.Clear(Color.White);
+            graphics.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
             var y = 0;
-            foreach (var strip in _strips)
+            for (var index = 0; index < Count; index++)
             {
                 token.ThrowIfCancellationRequested();
+                var strip = _strips[index];
                 using var image = new Bitmap(strip.Path);
-                graphics.DrawImageUnscaled(image, 0, y); y += strip.Height;
+                var first = index == 0;
+                var height = first ? strip.Height - FixedEdges.Bottom : strip.Height;
+                var clip = first ? new Rectangle(0, y, Width, height) :
+                    new Rectangle(FixedEdges.Left, y, Width - FixedEdges.Horizontal, height);
+                graphics.SetClip(clip);
+                graphics.DrawImageUnscaled(image, 0, y);
+                y += height;
+                if (index == Count - 1 && FixedEdges.Bottom > 0)
+                {
+                    graphics.SetClip(new Rectangle(0, y, Width, FixedEdges.Bottom));
+                    graphics.DrawImageUnscaled(image, 0, y - height);
+                }
             }
             return result;
         }

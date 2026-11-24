@@ -49,7 +49,7 @@ All three include the .NET runtime. The single-file version extracts native depe
 
 ## Plugins
 
-SnipLite v0.3.17 bundles Scroll Capture 0.1.6 in all three packages and enables it by default.
+SnipLite v0.3.18 bundles Scroll Capture 0.1.13 in all three packages and enables it by default.
 
 - **Install or update.** In **Preferences → Plugins**, choose **Import plugin…** for a downloaded `.snipplugin` file or **Download plugin…** for an HTTPS package URL. Enable newly installed plugins from the list. Restart SnipLite to apply an update.
 - **Manage.** In **Installed plugins**, use the switch to enable or disable a plugin. Choose **Uninstall plugin** at the right end of its row and confirm. For an updated Scroll Capture installation, choose **Restore bundled version** to roll back. Uninstall, update and restore take effect on restart and keep plugin settings and hotkeys.
@@ -59,7 +59,7 @@ SnipLite v0.3.17 bundles Scroll Capture 0.1.6 in all three packages and enables 
 
 | Category | Plugin | Version | Requires SnipLite | Download |
 | --- | --- | --- | --- | --- |
-| Capture | [Scroll Capture](https://github.com/GxDongV/SnipLite-Plugin-Catalog/tree/main/plugins/capture/scroll-capture) | 0.1.8 | 0.3.16 or later | [`.snipplugin`](https://github.com/GxDongV/SnipLite-Plugin-Catalog/releases/download/scroll-capture-v0.1.8/sniplite.scroll-capture-0.1.8.snipplugin) |
+| Capture | [Scroll Capture](https://github.com/GxDongV/SnipLite-Plugin-Catalog/tree/main/plugins/capture/scroll-capture) | 0.1.13 | 0.3.16 or later | [`.snipplugin`](https://github.com/GxDongV/SnipLite-Plugin-Catalog/releases/download/scroll-capture-v0.1.13/sniplite.scroll-capture-0.1.13.snipplugin) |
 
 [Official plugin catalog](https://github.com/GxDongV/SnipLite-Plugin-Catalog) · [Plugin integration specification (Simplified Chinese)](docs/PLUGIN_DEVELOPMENT.zh-CN.md)
 

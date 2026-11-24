@@ -8,7 +8,14 @@ public sealed class ScrollCapturePlugin : IPlugin, ICaptureProvider
     public string Id => "capture";
     public PluginText Title => new("Scrolling screenshot…", "长截图…", "捲動截圖…");
 
-    public void Initialize(IPluginContext context) => _registration = context.RegisterCaptureProvider(this);
+    public void Initialize(IPluginContext context) =>
+        _registration = context.RegisterCommand(new(Id, Title, async token =>
+        {
+            using var result = await CaptureAsync(context.Host, token);
+            if (result is null) return;
+            using var preview = new ScrollResultPreview(result, context.Host, token);
+            preview.ShowResult();
+        }));
     public void Dispose() { _registration?.Dispose(); _registration = null; }
 
     public async Task<PluginImage?> CaptureAsync(IPluginHost host, CancellationToken cancellationToken)

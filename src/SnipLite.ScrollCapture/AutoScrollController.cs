@@ -68,11 +68,12 @@ internal sealed class ScrollStepSize(int viewportHeight)
     private double _pixelsPerNotch;
     private double _upperPixelsPerNotch;
     private int _pendingNotches;
+    public int ViewportHeight { get; set; } = viewportHeight;
     public int Notches { get; private set; } = 1;
     public bool CanProbe => _pendingNotches > 0 && _upperPixelsPerNotch > 0 &&
-        EstimatedOverlapAfterProbe >= FrameMatcher.MinimumOverlap(viewportHeight);
+        EstimatedOverlapAfterProbe >= FrameMatcher.MinimumOverlap(ViewportHeight);
     public int EstimatedOffset => (int)Math.Round(_pendingNotches * _pixelsPerNotch);
-    public int EstimatedOverlapAfterProbe => viewportHeight - (int)Math.Ceiling((_pendingNotches + 1) * _upperPixelsPerNotch);
+    public int EstimatedOverlapAfterProbe => ViewportHeight - (int)Math.Ceiling((_pendingNotches + 1) * _upperPixelsPerNotch);
 
     public void Reset()
     {
@@ -95,7 +96,7 @@ internal sealed class ScrollStepSize(int viewportHeight)
             _upperPixelsPerNotch = Math.Max(_upperPixelsPerNotch, _pixelsPerNotch * 1.1);
         }
         ConfirmPosition();
-        var desired = Math.Clamp((int)(viewportHeight / (2 * _pixelsPerNotch)), 1, 6);
+        var desired = Math.Clamp((int)(ViewportHeight / (2 * _pixelsPerNotch)), 1, 6);
         Notches = Math.Min(Notches + 2, desired);
     }
 }

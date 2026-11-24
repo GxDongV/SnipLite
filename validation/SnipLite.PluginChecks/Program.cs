@@ -48,6 +48,7 @@ internal static class Program
             ScrollTargetRecovery();
             ScrollUi();
             PreviewUi();
+            PreviewForeground();
             TextCaret();
             PreferencesIntegration();
             Console.WriteLine($"PASS: {_checks} plugin and scrolling-capture checks."); return 0;
@@ -121,16 +122,8 @@ internal static class Program
 
         using var outline = new CaptureOutline(new Rectangle(100, 100, width, height), Color.Blue);
         const int joinRow = height - offset + 3;
-        outline.ShowAlignment(normal);
-        Check(outline.Region is { } live && !live.IsVisible(100, joinRow) && live.IsVisible(1, joinRow),
-            "live join markers are clipped to the outer rim");
-        var rejected = new FrameAlignment(new(MatchKind.Uncertain), new(AlignmentStatus.Ambiguous, new(offset, 3), new(303, 5.563), 6.3));
-        outline.ShowAlignment(rejected);
-        Check(outline.Region is { } paused && paused.IsVisible(100, joinRow) && !paused.IsVisible(100, joinRow + 12),
-            "paused diagnostics mark the join row without covering surrounding content");
-        outline.ShowAlignment(null);
-        Check(outline.Region is { } resumed && !resumed.IsVisible(100, joinRow),
-            "continuing clears the interior line before sampling resumes");
+        Check(outline.Region is { } rim && !rim.IsVisible(100, joinRow) && rim.IsVisible(1, joinRow),
+            "the capture outline leaves the entire selected content visible");
     }
 
     private static void SparseOverlapMatching()
@@ -611,6 +604,43 @@ internal static class Program
             using var result = store.Build();
             AssertPixels(result, source, 144);
         }
+
+        var footerRegion = new Rectangle(0, 0, 160, 180);
+        using (var host = new RecoveryHost(source) { FooterHeight = 36 })
+        using (var session = new ScrollCaptureForm(host, footerRegion, CancellationToken.None, host.Target))
+        {
+            using var first = host.CaptureRegion(footerRegion);
+            var store = new ScrollImageStore(first);
+            Field(session, "_store", store);
+            using var scrolling = new AutoScrollController(host.Target);
+            scrolling.Start();
+            Field(session, "_scroller", scrolling);
+            host.Target.OnStep = () => { host.Offset += host.Target.LastNotches * 45; return true; };
+
+            void CaptureStep()
+            {
+                Tick(session);
+                Tick(session); Tick(session); Tick(session);
+            }
+
+            CaptureStep();
+            Check(store.FixedEdges.Bottom == 36 && store.Height == 225, $"the first accepted movement confirms and relocates the fixed footer: {store.FixedEdges}, {store.Height}");
+            CaptureStep();
+            Check(host.Target.LastNotches == 1 && store.Count == 3 && store.Height == 270,
+                $"the smaller moving region controls subsequent scroll steps: {store.Count} strips, {store.Height} px");
+            using (var result = store.Build())
+            {
+                using var body = result.Clone(new Rectangle(0, 0, 160, 234), PixelFormat.Format32bppArgb);
+                AssertPixels(body, source, 234);
+                Check(result.GetPixel(80, 245) == first.GetPixel(80, 155), "the original stationary footer is visible at the very end");
+            }
+            Check(store.Undo() && store.FixedEdges.Bottom == 36 && store.Height == 225, "undoing an appended strip keeps the confirmed footer");
+            Check(store.Undo() && store.FixedEdges == Padding.Empty && store.Height == 180, "undoing to the first frame restores the full selection");
+            using var original = store.Build();
+            for (var y = 0; y < first.Height; y++)
+                Check(first.GetPixel(80, y) == original.GetPixel(80, y), "original screenshot pixels are restored after undo");
+        }
+        FixedEdgesComposition(Tick);
     }
 
     private sealed class FakeScrollWindows : IScrollWindowApi
@@ -635,15 +665,26 @@ internal static class Program
         internal readonly FakeScrollTarget Target = new();
         internal int Offset, Captures;
         internal bool Blank;
+        internal int FooterHeight;
+        internal Func<int, Bitmap>? CaptureFrame;
         internal List<string> Messages { get; } = [];
         public string Language => "en-US";
         public Bitmap CaptureRegion(Rectangle region)
         {
             Captures++;
-            if (!Blank) return source.Clone(new Rectangle(0, Offset, region.Width, region.Height), PixelFormat.Format32bppArgb);
-            var frame = new Bitmap(region.Width, region.Height, PixelFormat.Format32bppArgb);
+            if (CaptureFrame is { } captureFrame) return captureFrame(Offset);
+            var frame = Blank ? new Bitmap(region.Width, region.Height, PixelFormat.Format32bppArgb)
+                : source.Clone(new Rectangle(0, Offset, region.Width, region.Height), PixelFormat.Format32bppArgb);
+            if (!Blank && FooterHeight == 0) return frame;
             using var graphics = Graphics.FromImage(frame);
-            graphics.Clear(Color.White);
+            if (Blank) graphics.Clear(Color.White);
+            if (FooterHeight > 0)
+            {
+                var top = frame.Height - FooterHeight;
+                graphics.FillRectangle(Brushes.LightGray, 0, top, frame.Width, FooterHeight);
+                graphics.FillRectangle(Brushes.White, 16, top + 5, 120, FooterHeight - 10);
+                graphics.FillRectangle(Brushes.DimGray, 104, top + 10, 20, FooterHeight - 20);
+            }
             return frame;
         }
         public Task<Rectangle?> SelectRegionAsync(CancellationToken token) => Task.FromResult<Rectangle?>(null);
@@ -698,14 +739,12 @@ internal static class Program
                     form.DrawToBitmap(snapshot, new Rectangle(Point.Empty, form.Size));
                     snapshot.Save(Path.Combine(artifacts, $"scroll-{language}-{(dark ? "dark" : "light")}-{(paused ? "paused" : "capturing")}.png"));
                 }
-                var rejected = new AlignmentSearch(AlignmentStatus.Ambiguous, new(200, 2.583), new(195, 4.672), 5.633);
-                typeof(ScrollCaptureForm).GetMethod("ShowAlignment", flags)!.Invoke(form, new object[] { new FrameAlignment(new(MatchKind.Uncertain), rejected) });
-                var reason = (string)typeof(ScrollCaptureForm).GetMethod("AlignmentFailure", flags)!.Invoke(form, new object[] { rejected })!;
+                var reason = (string)typeof(ScrollCaptureForm).GetMethod("AlignmentFailure", flags)!.Invoke(form, new object[] { AlignmentStatus.Ambiguous })!;
                 typeof(ScrollCaptureForm).GetMethod("SetStatus", flags)!.Invoke(form, new object[] { reason });
                 var status = Descendants(form).OfType<ScrollStatus>().Single();
                 var textWidth = status.Width - (int)(20 * form.DeviceDpi / 96f) - (int)(10 * form.DeviceDpi / 96f);
-                foreach (var line in new[] { status.CaptureRange, status.Alignment, status.Text })
-                    Check(TextRenderer.MeasureText(line, status.Font).Width <= textWidth, $"diagnostic line fits {language}: {line}");
+                Check(TextRenderer.MeasureText(status.Text, status.Font).Width <= textWidth, $"pause message fits {language}");
+                Check(!status.Text.Any(char.IsDigit) && status.AccessibleName == status.Text, "capture status only exposes a plain-language pause message");
                 using var diagnostic = new Bitmap(form.Width, form.Height);
                 form.DrawToBitmap(diagnostic, new Rectangle(Point.Empty, form.Size));
                 diagnostic.Save(Path.Combine(artifacts, $"scroll-{language}-{(dark ? "dark" : "light")}-alignment.png"));
@@ -713,6 +752,126 @@ internal static class Program
             }
         }
         finally { SnipLite.Localization.LanguageService.Configure(originalLanguage); }
+    }
+
+    private static void FixedEdgesComposition(Action<ScrollCaptureForm> tick)
+    {
+        const int width = 252, height = 210, offset = 38;
+        var edges = new Padding(29, 23, 31, 28);
+        var frameSize = new Size(width, height);
+        var body = StationaryEdges.Body(frameSize, edges);
+        using var content = new Bitmap(body.Width, body.Height + 2 * offset, PixelFormat.Format32bppArgb);
+        var random = new Random(121);
+        Color Ink() => Color.FromArgb(random.Next(256), random.Next(256), random.Next(256));
+        for (var y = 0; y < content.Height; y++)
+        for (var x = 0; x < content.Width; x++)
+            content.SetPixel(x, y, Ink());
+        using var first = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+        for (var y = 0; y < height; y++)
+        for (var x = 0; x < width; x++)
+            first.SetPixel(x, y, body.Contains(x, y) ? content.GetPixel(x - body.Left, y - body.Top) : Ink());
+
+        Bitmap Frame(int start)
+        {
+            var frame = new Bitmap(first);
+            using var graphics = Graphics.FromImage(frame);
+            graphics.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
+            graphics.SetClip(body);
+            graphics.DrawImageUnscaled(content, body.X, body.Y - start);
+            return frame;
+        }
+
+        using var second = Frame(offset);
+        using var third = Frame(2 * offset);
+        third.SetPixel(13, height - 8, Color.Magenta);
+        var confirmed = StationaryEdges.Find(first, second, offset);
+        Check(confirmed == edges, $"all four stationary edges use precise screen coordinates: {confirmed}");
+
+        using var host = new RecoveryHost(content)
+        {
+            CaptureFrame = start => new Bitmap(start == 0 ? first : start == offset ? second : third)
+        };
+        var region = new Rectangle(Point.Empty, frameSize);
+        using var session = new ScrollCaptureForm(host, region, CancellationToken.None, host.Target);
+        var store = new ScrollImageStore(first);
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        typeof(ScrollCaptureForm).GetField("_store", flags)!.SetValue(session, store);
+        using var scrolling = new AutoScrollController(host.Target);
+        scrolling.Start();
+        typeof(ScrollCaptureForm).GetField("_scroller", flags)!.SetValue(session, scrolling);
+        host.Target.OnStep = () => { host.Offset += offset; return true; };
+        for (var i = 0; i < 2; i++)
+        {
+            tick(session);
+            tick(session);
+            tick(session);
+            tick(session);
+        }
+        Check(host.Target.Steps == 2 && store.Count == 3 && store.FixedEdges == edges,
+            $"automatic capture confirms and uses all four edges: {store.Count} frames, {store.FixedEdges}");
+        using var result = store.Build();
+        Check(result.Size == new Size(width, height + offset * 2), "fixed regions are kept once within the original width");
+        for (var y = 0; y < result.Height; y++)
+        for (var x = 0; x < width; x++)
+        {
+            var expected = y >= result.Height - edges.Bottom ? third.GetPixel(x, y - offset * 2)
+                : y < edges.Top ? first.GetPixel(x, y)
+                : x >= body.Left && x < body.Right ? content.GetPixel(x - body.Left, y - body.Top)
+                : y < body.Bottom ? first.GetPixel(x, y) : Color.White;
+            var actual = result.GetPixel(x, y);
+            if (actual.ToArgb() != expected.ToArgb())
+                throw new InvalidOperationException($"fixed-edge composition differs at ({x}, {y}): {actual} vs {expected}");
+        }
+        Check(store.Undo(), "undo removes the last scroll distance with fixed edges");
+        using var shorter = store.Build();
+        Check(shorter.Height == height + offset && shorter.GetPixel(13, shorter.Height - 8) == second.GetPixel(13, height - 8),
+            "undo restores the footer from the prior accepted frame");
+
+        using var blankBefore = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+        using var blankAfter = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+        using (var graphics = Graphics.FromImage(blankBefore)) graphics.Clear(Color.White);
+        using (var graphics = Graphics.FromImage(blankAfter)) graphics.Clear(Color.White);
+        Check(StationaryEdges.Find(blankBefore, blankAfter, offset) == Padding.Empty,
+            "flat blank space alone does not identify any fixed region");
+    }
+
+    private static void PreviewForeground()
+    {
+        using var input = new PluginImage(new Bitmap(64, 400));
+        var settings = new AppSettings();
+        var host = new PluginHostServices(settings, (_, _) => { });
+        using var preview = new ScrollResultPreview(input, host, CancellationToken.None)
+        { StartPosition = FormStartPosition.Manual, Location = new Point(-20000, -20000) };
+        var shown = false;
+        var topmost = false;
+        var iconsFit = false;
+        var zoomWorks = false;
+        preview.Shown += (_, _) =>
+        {
+            try
+            {
+                shown = true;
+                topmost = preview.TopMost;
+                var toolbar = Descendants(preview).OfType<ToolStrip>().Single();
+                var actions = toolbar.Items.OfType<ScrollPreviewButton>().ToArray();
+                iconsFit = actions.Length == 8 && actions.All(button =>
+                    button.DisplayStyle == ToolStripItemDisplayStyle.Image &&
+                    !string.IsNullOrWhiteSpace(button.AccessibleName) &&
+                    button.AccessibleName == button.ToolTipText &&
+                    toolbar.ClientRectangle.Contains(button.Bounds));
+                var viewport = Descendants(preview).OfType<ScrollResultViewport>().Single();
+                var startingZoom = viewport.ScaleFactor;
+                actions.Single(button => button.Name == "zoom-in").PerformClick();
+                zoomWorks = viewport.ScaleFactor > startingZoom;
+                actions.Single(button => button.Name == "fit-width").PerformClick();
+                zoomWorks &= Math.Abs(viewport.ScaleFactor - startingZoom) < .00001;
+            }
+            finally { preview.BeginInvoke(preview.Close); }
+        };
+        preview.ShowResult();
+        Check(shown && topmost, "the first visible preview is raised above other windows");
+        Check(iconsFit, "the plugin preview shows eight accessible icon-only buttons without overflow");
+        Check(zoomWorks, "the plugin preview icons keep their zoom and fit actions");
     }
 
     private static void PreviewUi()

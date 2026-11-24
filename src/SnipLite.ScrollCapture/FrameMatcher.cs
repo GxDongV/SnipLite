@@ -30,6 +30,26 @@ internal sealed class FrameSample
         Width = width; Height = height; Gray = gray;
     }
 
+    internal FrameSample ScrollingBody(Padding edges)
+    {
+        var body = StationaryEdges.Body(new Size(Width, Height), edges);
+        var first = 0;
+        var last = Columns - 1;
+        while (first < last && SampleColumn(first) - 1 < body.Left) first++;
+        while (last > first && SampleColumn(last) + 1 >= body.Right) last--;
+        var gray = new byte[body.Height * Columns];
+        for (var x = 0; x < Columns; x++)
+        {
+            var column = first + x * (last - first) / (Columns - 1);
+            for (var y = 0; y < body.Height; y++)
+                gray[y * Columns + x] = Gray[(body.Y + y) * Columns + column];
+        }
+        return new FrameSample(body.Width, body.Height, gray);
+    }
+
+    private int SampleColumn(int col) =>
+        Math.Clamp(4 + col * Math.Max(1, Width - 9) / (Columns - 1), 1, Width - 2);
+
     public FrameSample(Bitmap image)
     {
         Width = image.Width; Height = image.Height; Gray = new byte[Height * Columns];
@@ -42,8 +62,7 @@ internal sealed class FrameSample
                 Marshal.Copy(data.Scan0 + y * data.Stride, row, 0, row.Length);
                 for (var col = 0; col < Columns; col++)
                 {
-                    var x = 4 + col * Math.Max(1, Width - 9) / (Columns - 1);
-                    x = Math.Clamp(x, 1, Width - 2);
+                    var x = SampleColumn(col);
                     var sum = 0;
                     for (var dx = -1; dx <= 1; dx++)
                     {

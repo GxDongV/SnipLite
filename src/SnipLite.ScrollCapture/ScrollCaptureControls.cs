@@ -51,6 +51,21 @@ internal static class ScrollDrawing
         {
             graphics.TranslateTransform(bounds.X, bounds.Y); graphics.ScaleTransform(bounds.Width / 24f, bounds.Height / 24f);
             using var pen = new Pen(color, 1.7f) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
+            void Line(float x1, float y1, float x2, float y2) => graphics.DrawLine(pen, x1, y1, x2, y2);
+            void Lines(params PointF[] points) => graphics.DrawLines(pen, points);
+            void Box(float x, float y, float width, float height)
+            {
+                using var path = Rounded(new RectangleF(x, y, width, height), 1);
+                graphics.DrawPath(pen, path);
+            }
+            void Corners()
+            {
+                Lines(new(3, 8), new(3, 3), new(8, 3));
+                Lines(new(16, 3), new(21, 3), new(21, 8));
+                Lines(new(3, 16), new(3, 21), new(8, 21));
+                Lines(new(16, 21), new(21, 21), new(21, 16));
+            }
+
             switch (id)
             {
                 case "pause": graphics.DrawLine(pen, 8, 5, 8, 19); graphics.DrawLine(pen, 16, 5, 16, 19); break;
@@ -60,9 +75,74 @@ internal static class ScrollDrawing
                     graphics.DrawLines(pen, new PointF[] { new(3, 9), new(14, 9), new(19, 13), new(19, 17), new(15, 20), new(10, 20) }); break;
                 case "finish": graphics.DrawLines(pen, new PointF[] { new(4, 12), new(10, 18), new(20, 6) }); break;
                 case "close": graphics.DrawLine(pen, 6, 6, 18, 18); graphics.DrawLine(pen, 18, 6, 6, 18); break;
+                case "copy":
+                    Box(8, 8, 13, 13);
+                    Lines(new(16, 4), new(16, 3), new(3, 3), new(3, 16), new(4, 16));
+                    break;
+                case "save":
+                    Lines(new(4, 3), new(17, 3), new(21, 7), new(21, 21), new(3, 21), new(3, 4), new(4, 3));
+                    Box(7, 3, 9, 6);
+                    Box(7, 14, 10, 7);
+                    break;
+                case "fit-width":
+                    Line(3, 4, 3, 20);
+                    Line(21, 4, 21, 20);
+                    Line(5, 12, 19, 12);
+                    Lines(new(8, 9), new(5, 12), new(8, 15));
+                    Lines(new(16, 9), new(19, 12), new(16, 15));
+                    break;
+                case "fit-image":
+                    Corners();
+                    Box(8, 6, 8, 12);
+                    break;
+                case "actual":
+                    Corners();
+                    Box(8, 8, 8, 8);
+                    break;
+                case "zoom-in":
+                case "zoom-out":
+                    graphics.DrawEllipse(pen, 3, 3, 13, 13);
+                    Line(14, 14, 21, 21);
+                    Line(6, 9.5f, 13, 9.5f);
+                    if (id == "zoom-in") Line(9.5f, 6, 9.5f, 13);
+                    break;
+                case "extensions":
+                    Box(6, 9, 12, 10);
+                    Line(9, 4, 9, 9);
+                    Line(15, 4, 15, 9);
+                    Line(12, 19, 12, 22);
+                    break;
             }
         }
         finally { graphics.Restore(state); }
+    }
+}
+
+internal sealed class ScrollPreviewButton : ToolStripButton
+{
+    private readonly string _glyph;
+
+    public ScrollPreviewButton(string glyph, string label) : base(label)
+    {
+        _glyph = Name = glyph;
+        DisplayStyle = ToolStripItemDisplayStyle.Image;
+        ToolTipText = AccessibleName = label;
+    }
+
+    private int Px(int value) => (int)Math.Round(value * (Owner?.DeviceDpi ?? 96) / 96f);
+
+    public override Size GetPreferredSize(Size constrainingSize) => new(Px(34), Px(32));
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e);
+        if (Owner is not { } owner) return;
+        var palette = ScrollPalette.For(owner);
+        var color = palette.HighContrast && Selected && Enabled ? SystemColors.HighlightText
+            : Enabled ? palette.Text : palette.Disabled;
+        var size = Px(18);
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        ScrollDrawing.Glyph(e.Graphics, _glyph, new Rectangle((Width - size) / 2, (Height - size) / 2, size, size), color);
     }
 }
 
@@ -142,17 +222,6 @@ internal sealed class ScrollToggle : CheckBox
 internal sealed class ScrollStatus : Control
 {
     private readonly Bitmap _icon = ScrollDrawing.LoadIcon();
-    private string _metrics = "";
-    private string _captureRange = "";
-    private string _alignment = "";
-    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    internal string Metrics { get => _metrics; set { _metrics = value; Invalidate(); } }
-    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    internal string CaptureRange { get => _captureRange; set { _captureRange = value; Invalidate(); } }
-    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    internal string Alignment { get => _alignment; set { if (_alignment != value) { _alignment = value; Invalidate(); } } }
-    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    internal bool Paused { get; set; }
     public ScrollStatus() { DoubleBuffered = true; ResizeRedraw = true; TabStop = false; AccessibleRole = AccessibleRole.StaticText; }
     protected override void OnTextChanged(EventArgs e) { base.OnTextChanged(e); Invalidate(); }
     protected override void OnPaint(PaintEventArgs e)
@@ -160,22 +229,10 @@ internal sealed class ScrollStatus : Control
         var palette = ScrollPalette.For(this); var scale = DeviceDpi / 96f; var g = e.Graphics;
         g.Clear(palette.Card);
         var iconSize = (int)(20 * scale); var gap = (int)(10 * scale);
-        g.DrawImage(_icon, new Rectangle(0, 0, iconSize, iconSize));
+        g.DrawImage(_icon, new Rectangle(0, (Height - iconSize) / 2, iconSize, iconSize));
         var left = iconSize + gap;
-        var lineHeight = (int)Math.Round(17 * scale);
-        var y = 0;
-        void Line(string text, Color color)
-        {
-            if (text.Length == 0) return;
-            TextRenderer.DrawText(g, text, Font, new Rectangle(left, y, Width - left, lineHeight), color,
-                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-            y += lineHeight;
-        }
-        Line(Metrics, Paused ? palette.Muted : palette.Text);
-        Line(CaptureRange, palette.Muted);
-        Line(Alignment, palette.Text);
-        TextRenderer.DrawText(g, Text, Font, new Rectangle(left, y, Width - left, Height - y), palette.Muted,
-            TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        TextRenderer.DrawText(g, Text, Font, new Rectangle(left, 0, Width - left, Height), palette.Text,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
     }
     protected override void Dispose(bool disposing) { if (disposing) _icon.Dispose(); base.Dispose(disposing); }
 }
