@@ -1,4 +1,6 @@
 {
+  "ui.a78f6e04d5c2": "Der Autostart als Administrator ist aktiviert. Starten Sie SnipLite manuell als Administrator neu.",
+  "ui.c28f6701bd9a": "Nach dem Aktivieren startet SnipLite neu, sobald Sie die Windows-Abfrage bestätigen.",
   "ui.pluginCatalog1": "Installierte Plugins",
   "ui.pluginCatalog2": "Plugins entdecken",
   "ui.pluginCatalog3": "Katalog aktualisieren",

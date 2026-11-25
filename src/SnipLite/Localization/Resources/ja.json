@@ -1,4 +1,6 @@
 {
+  "ui.a78f6e04d5c2": "管理者としての自動起動が有効になりました。SnipLite を手動で管理者として再起動してください。",
+  "ui.c28f6701bd9a": "有効にして Windows の確認画面で許可すると、SnipLite がすぐに再起動します。",
   "ui.pluginCatalog1": "インストール済みプラグイン",
   "ui.pluginCatalog2": "プラグインを探す",
   "ui.pluginCatalog3": "カタログを更新",

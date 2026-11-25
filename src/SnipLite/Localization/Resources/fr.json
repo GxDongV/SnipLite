@@ -1,4 +1,6 @@
 {
+  "ui.a78f6e04d5c2": "Le démarrage en tant qu’administrateur est activé. Redémarrez SnipLite manuellement en tant qu’administrateur.",
+  "ui.c28f6701bd9a": "Après activation, SnipLite redémarre dès que vous confirmez l’invite Windows.",
   "ui.pluginCatalog1": "Extensions installées",
   "ui.pluginCatalog2": "Découvrir des extensions",
   "ui.pluginCatalog3": "Actualiser le catalogue",

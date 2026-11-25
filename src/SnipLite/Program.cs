@@ -9,6 +9,12 @@ internal static class Program
         Application.SetColorMode(SystemColorMode.System);
         AppTheme.Refresh();
 
+        if (args is [Startup.RestartAsAdministratorArgument, var userSid])
+        {
+            Environment.ExitCode = (int)Startup.ConfigureAdministratorStartupAndLaunch(userSid);
+            return;
+        }
+
         if (args.Any(arg => arg.StartsWith("--startup-admin:")))
         {
             Environment.ExitCode = Startup.ConfigureAdminTask(args.Contains("--startup-admin:on"));
@@ -19,7 +25,7 @@ internal static class Program
         using var mutex = new Mutex(false, @"Global\SnipLite.SingleInstance");
         try
         {
-            if (!mutex.WaitOne(args.Contains("--wait-for-instance") ? 5000 : 0))
+            if (!mutex.WaitOne(args.Contains("--wait-for-instance") ? 30000 : 0))
             {
                 MessageBox.Show(Localization.LanguageService.Format("SnipLite 已有实例正在运行，本次没有启动新版。\n\n请先从托盘右键菜单退出旧版，再启动本文件。\n\n本文件版本：{0}\n本文件位置：{1}", AppInfo.Version, Application.ExecutablePath), UiText.T("SnipLite 已在运行"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;

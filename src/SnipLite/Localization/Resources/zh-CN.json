@@ -1,4 +1,6 @@
 {
+  "ui.a78f6e04d5c2": "管理员开机启动已开启，请手动以管理员身份重新启动。",
+  "ui.c28f6701bd9a": "开启后，确认 Windows 授权即可立即重启 SnipLite。",
   "ui.pluginCatalog1": "已安装插件",
   "ui.pluginCatalog2": "发现插件",
   "ui.pluginCatalog3": "刷新插件目录",

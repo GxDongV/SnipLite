@@ -42,6 +42,7 @@ internal sealed partial class PreferencesForm : Form
     private Font? _interfaceFont;
     private readonly Plugins.PluginManager? _plugins;
     public event Action? PluginRestartRequested;
+    public event Action? AdministratorRestartReady;
     private sealed class BufferedPage : Panel
     {
         public BufferedPage() { DoubleBuffered = true; ResizeRedraw = true; }
@@ -614,6 +615,40 @@ internal sealed partial class PreferencesForm : Form
             return applied;
         }
         finally { if (!IsDisposed) Enabled = true; }
+    }
+
+    private async Task EnableAdministratorStartupAsync()
+    {
+        var restartPending = false;
+        Enabled = false;
+        try
+        {
+            var result = await Task.Run(Startup.EnableAdministratorStartupAndRestart);
+            if (result == Startup.AdministratorRestartResult.StartupFailed)
+            {
+                if (!IsDisposed)
+                {
+                    Toast.Error(UiText.T("开机启动设置未修改。"));
+                    ShowTab(_selected);
+                }
+                return;
+            }
+
+            Change(() =>
+            {
+                _s.StartWithWindows = true;
+                _s.StartAsAdministrator = true;
+            });
+            restartPending = result == Startup.AdministratorRestartResult.RestartStarted;
+            if (restartPending)
+                AdministratorRestartReady?.Invoke();
+            else if (!IsDisposed)
+            {
+                Toast.Error(UiText.T("管理员开机启动已开启，请手动以管理员身份重新启动。"));
+                ShowTab(_selected);
+            }
+        }
+        finally { if (!restartPending && !IsDisposed) Enabled = true; }
     }
 
     private async void ResetAll()

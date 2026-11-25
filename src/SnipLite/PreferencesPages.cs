@@ -139,9 +139,11 @@ internal sealed partial class PreferencesForm
         });
         Check("以管理员身份开机启动", _s.StartAsAdministrator, async value =>
         {
-            if (!_s.StartWithWindows || await ApplyStartupAsync(true, value)) Set(nameof(_s.StartAsAdministrator), value);
+            if (value) await EnableAdministratorStartupAsync();
+            else if (!_s.StartWithWindows || await ApplyStartupAsync(true, false)) Set(nameof(_s.StartAsAdministrator), false);
             else if (!IsDisposed) ShowTab(_selected);
         });
+        HintText("开启后，确认 Windows 授权即可立即重启 SnipLite。");
         Flag("自动备份配置文件", nameof(_s.AutoBackup));
         Flag("保持快速响应", nameof(_s.KeepResponsive));
         Flag("增强版托盘菜单", nameof(_s.EnhancedTrayMenu));

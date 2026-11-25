@@ -1,4 +1,6 @@
 {
+  "ui.a78f6e04d5c2": "El inicio como administrador está activado. Reinicia SnipLite manualmente como administrador.",
+  "ui.c28f6701bd9a": "Al activar esta opción, SnipLite se reinicia al confirmar el aviso de Windows.",
   "ui.pluginCatalog1": "Complementos instalados",
   "ui.pluginCatalog2": "Descubrir complementos",
   "ui.pluginCatalog3": "Actualizar catálogo",

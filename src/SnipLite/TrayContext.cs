@@ -104,6 +104,7 @@ internal sealed class TrayContext : ApplicationContext
         if (_prefs is { IsDisposed: false }) { _prefs.Activate(); _prefs.SelectTab(tab); return; }
         _prefs = new PreferencesForm(_settings, tab, _plugins);
         _prefs.PluginRestartRequested += () => Restart(PreferencesForm.PluginsTab);
+        _prefs.AdministratorRestartReady += Exit;
         _prefs.Applied += ApplySettings;
         _prefs.HotkeyAvailable = _hotkeys.CanRegister;
         _prefs.HotkeyEditing += editing => { _editingHotkey = editing; _hotkeySignature = ""; ApplyHotkeys(); };

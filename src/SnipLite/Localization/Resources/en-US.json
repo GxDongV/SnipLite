@@ -1,4 +1,6 @@
 {
+  "ui.a78f6e04d5c2": "Administrator startup is enabled. Restart SnipLite manually as administrator.",
+  "ui.c28f6701bd9a": "When enabled, SnipLite restarts immediately after you approve the Windows prompt.",
   "ui.pluginCatalog1": "Installed plugins",
   "ui.pluginCatalog2": "Discover plugins",
   "ui.pluginCatalog3": "Refresh catalog",

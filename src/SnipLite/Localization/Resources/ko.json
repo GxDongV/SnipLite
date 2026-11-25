@@ -1,4 +1,6 @@
 {
+  "ui.a78f6e04d5c2": "관리자 권한으로 자동 시작이 켜졌습니다. SnipLite를 관리자 권한으로 직접 다시 시작하세요.",
+  "ui.c28f6701bd9a": "이 옵션을 켜고 Windows 메시지에서 승인하면 SnipLite가 즉시 다시 시작됩니다.",
   "ui.pluginCatalog1": "설치된 플러그인",
   "ui.pluginCatalog2": "플러그인 찾기",
   "ui.pluginCatalog3": "카탈로그 새로 고침",
