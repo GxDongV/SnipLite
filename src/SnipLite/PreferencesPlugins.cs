@@ -25,11 +25,13 @@ internal sealed partial class PreferencesForm
         };
         _layoutHeader.Controls.Add(title);
         _layoutHeader.Controls.Add(preview);
+        Value(nameof(_s.ToolbarButtonOrder));
+        preview.OrderChanged += order => Set(nameof(_s.ToolbarButtonOrder), order);
 
         _y = Px(PagePad);
         _captions = true;
         Section("截图功能按钮", () => { });
-        HintText("分别控制 F1 框选后工具栏中的按钮；隐藏按钮不影响快捷键。");
+        HintText("拖动上方预览中的按钮调整顺序。下方开关控制按钮显示，快捷键照常可用。");
         Value(nameof(_s.HiddenToolbarButtons));
         foreach (var (id, label) in AnnotationBar.BuiltInButtons)
             ToolbarSwitch(preview, id, label);

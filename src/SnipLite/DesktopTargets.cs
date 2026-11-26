@@ -21,18 +21,18 @@ internal sealed class DesktopTargets
             return true;
         }, IntPtr.Zero);
     }
-    public Rectangle At(Point point, bool elements, bool includeAutomation = true)
+    public Rectangle At(Point point, bool elements, bool includeAutomation = true, ISet<Rectangle>? candidates = null)
     {
         var window = _windows.FirstOrDefault(window => window.Bounds.Contains(point));
         if (window.Handle == IntPtr.Zero) return Rectangle.Empty;
         if (!elements) return window.Bounds;
-        var native = NativeChildBounds(window.Handle, point, window.Bounds, out _);
+        var native = NativeChildBounds(window.Handle, point, window.Bounds, out _, candidates);
         if (!includeAutomation) return native;
-        var best = AccessibleAt(point);
-        var automation = AutomationAt(point);
+        var best = AccessibleAt(point, candidates);
+        var automation = AutomationAt(point, candidates);
         return !automation.IsEmpty && (long)automation.Width * automation.Height < (long)best.Width * best.Height ? automation : best;
     }
-    public Rectangle AccessibleAt(Point point)
+    public Rectangle AccessibleAt(Point point, ISet<Rectangle>? candidates = null)
     {
         var window = _windows.FirstOrDefault(window => window.Bounds.Contains(point));
         if (window.Handle == IntPtr.Zero) return Rectangle.Empty;
@@ -40,20 +40,20 @@ internal sealed class DesktopTargets
         var best = native.IsEmpty ? window.Bounds : native;
         // Some providers expose hit testing only from their own native content
         // HWND. Query it as well as the top-level window, without hitting the overlay.
-        best = AccessibleBounds(childHandle, point, window.Bounds, best);
-        if (childHandle != window.Handle) best = AccessibleBounds(window.Handle, point, window.Bounds, best);
+        best = AccessibleBounds(childHandle, point, window.Bounds, best, candidates);
+        if (childHandle != window.Handle) best = AccessibleBounds(window.Handle, point, window.Bounds, best, candidates);
         return best;
     }
-    public Rectangle AutomationAt(Point point)
+    public Rectangle AutomationAt(Point point, ISet<Rectangle>? candidates = null)
     {
         var window = _windows.FirstOrDefault(window => window.Bounds.Contains(point));
         if (window.Handle == IntPtr.Zero) return Rectangle.Empty;
         var best = NativeChildBounds(window.Handle, point, window.Bounds, out var childHandle);
-        var automation = AutomationBounds(childHandle, point, window.Bounds);
+        var automation = NativeUiAutomation.Bounds(childHandle, point, window.Bounds, candidates);
         if (!automation.IsEmpty && (long)automation.Width * automation.Height < (long)best.Width * best.Height) best = automation;
         if (childHandle != window.Handle)
         {
-            automation = AutomationBounds(window.Handle, point, window.Bounds);
+            automation = NativeUiAutomation.Bounds(window.Handle, point, window.Bounds, candidates);
             if (!automation.IsEmpty && (long)automation.Width * automation.Height < (long)best.Width * best.Height) best = automation;
         }
         return best;
@@ -64,43 +64,50 @@ internal sealed class DesktopTargets
         GetWindowThreadProcessId(window.Handle, out var process);
         return $"{name} pid={process} bounds={window.Bounds} ex={GetWindowLongPtr(window.Handle, -20):X}";
     }));
-    private static Rectangle AccessibleBounds(IntPtr handle, Point point, Rectangle window, Rectangle best)
+    private static Rectangle AccessibleBounds(IntPtr handle, Point point, Rectangle window, Rectangle best, ISet<Rectangle>? candidates)
     {
         try
         {
             var iid = new Guid("618736E0-3C3D-11CF-810C-00AA00389B71");
             if (AccessibleObjectFromWindow(handle, 0xFFFFFFFC, ref iid, out var accessible) != 0 || accessible is null) return best;
-            var visited = new List<object> { accessible };
+            var visited = new HashSet<object>(ReferenceEqualityComparer.Instance) { accessible };
             try
             {
                 for (var i = 0; i < 16; i++)
                 {
                     var hit = accessible.accHitTest(point.X, point.Y);
-                    if (hit is Accessibility.IAccessible child && !ReferenceEquals(child, accessible))
-                    { accessible = child; visited.Add(child); continue; }
-                    accessible.accLocation(out var x, out var y, out var width, out var height, hit is int id ? id : 0);
-                    var candidate = new Rectangle(x, y, width, height);
-                    if (candidate.Contains(point) && candidate.Width > 1 && candidate.Height > 1)
+                    var child = hit as Accessibility.IAccessible;
+                    var hasChild = child is not null && !ReferenceEquals(child, accessible);
+                    if (!hasChild || candidates is not null)
                     {
-                        candidate = Rectangle.Intersect(candidate, window);
-                        if ((long)candidate.Width * candidate.Height < (long)best.Width * best.Height) best = candidate;
+                        try
+                        {
+                            accessible.accLocation(out var x, out var y, out var width, out var height, hit is int id ? id : 0);
+                            var candidate = Rectangle.Intersect(new Rectangle(x, y, width, height), window);
+                            if (candidate.Contains(point) && candidate.Width > 1 && candidate.Height > 1)
+                            {
+                                candidates?.Add(candidate);
+                                if (!hasChild && (long)candidate.Width * candidate.Height < (long)best.Width * best.Height)
+                                    best = candidate;
+                            }
+                        }
+                        catch (COMException) when (hasChild) { }
                     }
-                    break;
+                    if (!hasChild || !visited.Add(child!)) break;
+                    accessible = child!;
                 }
             }
-            finally { foreach (var item in visited.Distinct()) if (Marshal.IsComObject(item)) Marshal.ReleaseComObject(item); }
+            finally { foreach (var item in visited) if (Marshal.IsComObject(item)) Marshal.ReleaseComObject(item); }
         }
         catch { }
         return best;
     }
-    private static Rectangle AutomationBounds(IntPtr handle, Point point, Rectangle window)
-    {
-        return NativeUiAutomation.Bounds(handle, point, window);
-    }
-    private static Rectangle NativeChildBounds(IntPtr root, Point point, Rectangle window, out IntPtr childHandle)
+    private static Rectangle NativeChildBounds(IntPtr root, Point point, Rectangle window, out IntPtr childHandle,
+        ISet<Rectangle>? candidates = null)
     {
         childHandle = root;
         var current = root; var best = window;
+        candidates?.Add(window);
         for (var depth = 0; depth < 32; depth++)
         {
             var local = new POINT { X = point.X, Y = point.Y };
@@ -112,6 +119,7 @@ internal sealed class DesktopTargets
             if (!GetWindowRect(child, out var r)) break;
             var candidate = Rectangle.Intersect(window, Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom));
             if (!candidate.Contains(point) || candidate.Width <= 1 || candidate.Height <= 1) break;
+            candidates?.Add(candidate);
             best = candidate; current = child; childHandle = child;
         }
         return best;

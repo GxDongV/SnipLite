@@ -45,26 +45,42 @@ internal static class SimdOcr
                     graphics.DrawImage(source, new Rectangle(Point.Empty, bitmap.Size));
                 }
 
-                var stride = checked(bitmap.Width * 4);
-                var pixels = new byte[checked(stride * bitmap.Height)];
-                var data = bitmap.LockBits(new Rectangle(Point.Empty, bitmap.Size), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-                try
-                {
-                    for (var y = 0; y < bitmap.Height; y++)
-                        Marshal.Copy(IntPtr.Add(data.Scan0, y * data.Stride), pixels, y * stride, stride);
-                }
-                finally { bitmap.UnlockBits(data); }
-
-                cancellationToken.ThrowIfCancellationRequested();
-                var result = _engine.Run(pixels, bitmap.Width, bitmap.Height, returnCtcAlignment: true,
-                    sourceStride: stride, format: ImagePixelFormat.Bgra32);
-                // Native inference is synchronous. Let it finish safely, then
+                var result = RunOnBitmap(_engine, bitmap, cancellationToken);
+                // Inference is synchronous. Let it finish safely, then
                 // discard canceled results without interrupting its resources.
                 cancellationToken.ThrowIfCancellationRequested();
                 return ToDocument(result, source.Size, bitmap.Size);
             }, cancellationToken).ConfigureAwait(false);
         }
         finally { Gate.Release(); }
+    }
+
+    private static unsafe PaddleOcrResult RunOnBitmap(PaddleOcrAll engine, Bitmap bitmap, CancellationToken cancellationToken)
+    {
+        var stride = checked(bitmap.Width * 4);
+        var length = checked(stride * bitmap.Height);
+        var data = bitmap.LockBits(new Rectangle(Point.Empty, bitmap.Size), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        try
+        {
+            ReadOnlySpan<byte> pixels;
+            if (data.Stride == stride)
+            {
+                // Run reads this span synchronously while the bitmap stays locked.
+                pixels = new ReadOnlySpan<byte>(data.Scan0.ToPointer(), length);
+            }
+            else
+            {
+                var packed = new byte[length];
+                for (var y = 0; y < bitmap.Height; y++)
+                    Marshal.Copy(IntPtr.Add(data.Scan0, y * data.Stride), packed, y * stride, stride);
+                pixels = packed;
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            return engine.Run(pixels, bitmap.Width, bitmap.Height, returnCtcAlignment: true,
+                sourceStride: stride, format: ImagePixelFormat.Bgra32);
+        }
+        finally { bitmap.UnlockBits(data); }
     }
 
     internal static OcrDocument ToDocument(PaddleOcrResult result, Size original, Size input)
@@ -77,15 +93,15 @@ internal static class SimdOcr
         {
             if (string.IsNullOrEmpty(line.Text)) continue;
             var detected = line.Box;
-            lineBounds.Add(Bounds(detected.X1, detected.Y1, detected.X2, detected.Y2, detected.X3, detected.Y3, detected.X4, detected.Y4));
+            var bounds = Bounds(detected.X1, detected.Y1, detected.X2, detected.Y2, detected.X3, detected.Y3, detected.X4, detected.Y4);
+            lineBounds.Add(bounds);
+            var first = characters.Count;
             var prefix = characters.Count == 0 ? "" : Environment.NewLine;
             var boxes = line.EstimateCharacterBoxes();
             if (boxes.Length == 0 || string.Concat(boxes.Select(b => b.Text)) != line.Text)
             {
                 // Retain all text when a future model cannot return token alignment.
-                var box = line.Box;
-                var fallback = new OcrDocument(new[] { new RecognizedWord(line.Text,
-                    Bounds(box.X1, box.Y1, box.X2, box.Y2, box.X3, box.Y3, box.X4, box.Y4), 0) });
+                var fallback = new OcrDocument(new[] { new RecognizedWord(line.Text, bounds, 0) });
                 characters.AddRange(fallback.Characters.Select((c, index) => index == 0 ? c with { Prefix = prefix } : c));
                 continue;
             }
@@ -94,6 +110,7 @@ internal static class SimdOcr
                 characters.Add(new(box.Text, Bounds(box.X1, box.Y1, box.X2, box.Y2, box.X3, box.Y3, box.X4, box.Y4), prefix));
                 prefix = "";
             }
+            ExtendLineEdges(characters, first, bounds);
         }
         return OcrDocument.FromCharacters(characters, lineBounds);
 
@@ -105,5 +122,31 @@ internal static class SimdOcr
             var bottom = Math.Clamp(Math.Max(Math.Max(y1, y2), Math.Max(y3, y4)) * sy, top, original.Height);
             return RectangleF.FromLTRB(left, top, right, bottom);
         }
+    }
+
+    private static void ExtendLineEdges(List<RecognizedCharacter> characters, int firstIndex, RectangleF line)
+    {
+        var first = characters[firstIndex];
+        var last = characters[^1];
+        if (firstIndex == characters.Count - 1)
+        {
+            characters[firstIndex] = first with { Bounds = RectangleF.Union(first.Bounds, line) };
+            return;
+        }
+
+        // CTC estimates can leave about half a glyph outside either end of the run.
+        // Use the detected line to extend the outer edges, retaining the interior boundaries.
+        var dx = last.Bounds.X + last.Bounds.Width / 2 - (first.Bounds.X + first.Bounds.Width / 2);
+        var dy = last.Bounds.Y + last.Bounds.Height / 2 - (first.Bounds.Y + first.Bounds.Height / 2);
+        var vertical = Math.Abs(dy) > Math.Abs(dx);
+        var forward = (vertical ? dy : dx) >= 0;
+        characters[firstIndex] = first with { Bounds = Extend(first.Bounds, forward) };
+        characters[^1] = last with { Bounds = Extend(last.Bounds, !forward) };
+
+        RectangleF Extend(RectangleF box, bool leading) => vertical
+            ? RectangleF.FromLTRB(box.Left, leading ? Math.Min(box.Top, line.Top) : box.Top,
+                box.Right, leading ? box.Bottom : Math.Max(box.Bottom, line.Bottom))
+            : RectangleF.FromLTRB(leading ? Math.Min(box.Left, line.Left) : box.Left, box.Top,
+                leading ? box.Right : Math.Max(box.Right, line.Right), box.Bottom);
     }
 }

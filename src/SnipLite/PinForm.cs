@@ -19,6 +19,12 @@ internal sealed class PinForm : Form
     private Font? _interfaceFont;
     private bool _resourcesReleased;
     private CancellationTokenSource? _ocrCancellation;
+    private OcrDocument? _ocrDocument;
+    private bool _copyAllAfterOcr;
+    private bool _selectingText;
+    private Point _textDragStart;
+    private int _textAnchor = -1;
+    private int _textEnd = -1;
     private Point _location;
     private Size _windowSize;
     private float _scale = 1;
@@ -175,6 +181,7 @@ internal sealed class PinForm : Form
         base.OnShown(e); ApplyLayout();
         if (_settings.ActivateNewPin) Win32.SetForegroundWindow(Handle);
         if (_settings.FlashNewPin) Flash();
+        _ = RecognizeText(copyAll: false);
     }
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
@@ -190,6 +197,7 @@ internal sealed class PinForm : Form
         if (_resourcesReleased) return;
         _resourcesReleased = true;
         _ocrCancellation?.Cancel(); _ocrCancellation = null;
+        _ocrDocument = null;
         Open.Remove(this); _flashTimer.Dispose(); _zoomBadgeTimer.Dispose(); _shadow?.Close(); _shadow?.Dispose();
         _shadow = null;
         if (_historyEntry is not null) _historyEntry.Location = _location;
@@ -232,6 +240,7 @@ internal sealed class PinForm : Form
         var g = e.Graphics;
         g.InterpolationMode = _settings.PinSmoothScaling ? InterpolationMode.HighQualityBicubic : InterpolationMode.NearestNeighbor;
         g.PixelOffsetMode = PixelOffsetMode.Half; g.DrawImage(_image, new Rectangle(Point.Empty, _windowSize));
+        DrawTextSelection(g);
         if (_zoomBadgeTimer.Enabled)
         {
             var label = $"{_scale:P0}";
@@ -260,11 +269,30 @@ internal sealed class PinForm : Form
         var gesture = e.Button == MouseButtons.Middle ? PointerGesture.MiddleClick : e.Button == MouseButtons.Right ? PointerGesture.RightClick : e.Clicks >= 2 ? PointerGesture.LeftDoubleClick : PointerGesture.LeftClick;
         if (HandleGesture(gesture)) { _suppressContext = e.Button == MouseButtons.Right; return; }
         if (e.Button != MouseButtons.Left) return;
+        if (_textEnd >= 0)
+        {
+            _textEnd = -1;
+            Invalidate();
+        }
+        _textAnchor = ModifierKeys == Keys.None ? HitText(e.Location) : -1;
+        if (_textAnchor >= 0)
+        {
+            _textDragStart = e.Location;
+            _selectingText = true;
+            Capture = true;
+            return;
+        }
         _dragging = true; _grab = Win32.CursorPosition(); _dragStart = _grab; Capture = true;
     }
     protected override void OnMouseMove(MouseEventArgs e)
     {
-        if (!_dragging || _exporting) return;
+        if (_selectingText) { ExtendTextSelection(e.Location); return; }
+        if (!_dragging)
+        {
+            UpdateTextCursor(e.Location);
+            return;
+        }
+        if (_exporting) return;
         var now = Win32.CursorPosition();
         if (ModifierKeys.HasFlag(Keys.Alt) && Math.Abs(now.X - _dragStart.X) + Math.Abs(now.Y - _dragStart.Y) > 6)
         {
@@ -282,7 +310,28 @@ internal sealed class PinForm : Form
         }
         _location.Offset(now.X - _grab.X, now.Y - _grab.Y); _grab = now; ApplyLayout();
     }
-    protected override void OnMouseUp(MouseEventArgs e) { _dragging = false; Capture = false; UpdateShadow(); }
+    protected override void OnMouseUp(MouseEventArgs e)
+    {
+        if (e.Button != MouseButtons.Left) return;
+        if (_selectingText)
+        {
+            ExtendTextSelection(e.Location);
+            _selectingText = false;
+            Capture = false;
+            UpdateTextCursor(e.Location);
+            return;
+        }
+        _dragging = false;
+        Capture = false;
+        UpdateShadow();
+    }
+    protected override void OnMouseCaptureChanged(EventArgs e)
+    {
+        base.OnMouseCaptureChanged(e);
+        if (Capture) return;
+        _selectingText = _dragging = false;
+        if (!_resourcesReleased) UpdateTextCursor(PointToClient(Cursor.Position));
+    }
     protected override void WndProc(ref Message m)
     {
         if (m.Msg == 0x007B && _suppressContext) { _suppressContext = false; return; }
@@ -308,7 +357,13 @@ internal sealed class PinForm : Form
     protected override void OnKeyDown(KeyEventArgs e)
     {
         if (e.KeyCode == Keys.Escape) { Close(); return; }
-        if (e.Control && e.KeyCode == Keys.C) { Copy(); return; }
+        if (e.Control && e.KeyCode == Keys.C)
+        {
+            if (HasTextSelection) CopyText(_ocrDocument!.GetText(_textAnchor, _textEnd));
+            else Copy();
+            e.SuppressKeyPress = true;
+            return;
+        }
         if (e.Control && e.KeyCode == Keys.S) { SaveAs(); return; }
         if (e.Control && e.KeyCode == Keys.D0) { Reset(); return; }
         if (e.KeyCode is Keys.Add or Keys.Oemplus or Keys.Subtract or Keys.OemMinus)
@@ -355,27 +410,78 @@ internal sealed class PinForm : Form
         }
         catch (Exception ex) { Toast.Error(UiText.T("保存失败：") + ex.Message); }
     }
-    private async Task RecognizeText()
+    private bool HasTextSelection => _ocrDocument is not null && _textAnchor >= 0 && _textEnd >= 0;
+
+    private int HitText(Point point, bool nearest = false) => _ocrDocument?.HitTest(new PointF(
+        point.X * (float)_image.Width / _windowSize.Width,
+        point.Y * (float)_image.Height / _windowSize.Height), nearest) ?? -1;
+
+    private void UpdateTextCursor(Point point) =>
+        Cursor = ClientRectangle.Contains(point) && HitText(point) >= 0 ? Cursors.IBeam : Cursors.Default;
+
+    private void ExtendTextSelection(Point point)
     {
-        if (_resourcesReleased || _ocrCancellation is not null) return;
+        if (_textEnd < 0 && point == _textDragStart) return;
+        var end = HitText(point, nearest: true);
+        if (end == _textEnd) return;
+        _textEnd = end;
+        Invalidate();
+    }
+
+    private void DrawTextSelection(Graphics graphics)
+    {
+        if (!HasTextSelection) return;
+        var first = Math.Min(_textAnchor, _textEnd);
+        var last = Math.Max(_textAnchor, _textEnd);
+        var sx = _windowSize.Width / (float)_image.Width;
+        var sy = _windowSize.Height / (float)_image.Height;
+        using var fill = new SolidBrush(Color.FromArgb(100, _settings.Accent));
+        for (var i = first; i <= last; i++)
+        {
+            var bounds = _ocrDocument!.Characters[i].Bounds;
+            graphics.FillRectangle(fill, bounds.X * sx, bounds.Y * sy, bounds.Width * sx, bounds.Height * sy);
+        }
+    }
+
+    private void CopyText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) { Toast.Show(UiText.T("没有识别到文字")); return; }
+        try { Clipboard.SetText(text); Toast.Show(UiText.T("文字已复制")); }
+        catch { Toast.Error(UiText.T("复制失败，请重试")); }
+    }
+
+    private async Task RecognizeText(bool copyAll = true)
+    {
+        if (_resourcesReleased) return;
+        if (_ocrDocument is { } cached)
+        {
+            if (copyAll) CopyText(cached.Text);
+            return;
+        }
+        _copyAllAfterOcr |= copyAll;
+        if (_ocrCancellation is not null) return;
         using var cancellation = new CancellationTokenSource();
         _ocrCancellation = cancellation;
         try
         {
-            string text;
+            OcrDocument document;
             using (var snapshot = new Bitmap(_image))
-                text = (await Services.RecognizeTextAsync(snapshot, cancellation.Token)).Text;
+                document = await Services.RecognizeTextAsync(snapshot, cancellation.Token);
             if (_resourcesReleased || IsDisposed || cancellation.IsCancellationRequested) return;
-            if (string.IsNullOrWhiteSpace(text)) { Toast.Show(UiText.T("没有识别到文字")); return; }
-            try { Clipboard.SetText(text); Toast.Show(UiText.T("文字已复制")); }
-            catch { Toast.Error(UiText.T("复制失败，请重试")); }
+            _ocrDocument = document;
+            if (!_dragging) UpdateTextCursor(PointToClient(Cursor.Position));
+            if (_copyAllAfterOcr) CopyText(document.Text);
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
         catch (Exception ex)
         {
-            if (!_resourcesReleased && !IsDisposed) Toast.Error(UiText.T("识别失败：") + ex.Message);
+            if (!_resourcesReleased && !IsDisposed && _copyAllAfterOcr) Toast.Error(UiText.T("识别失败：") + ex.Message);
         }
-        finally { if (ReferenceEquals(_ocrCancellation, cancellation)) _ocrCancellation = null; }
+        finally
+        {
+            _copyAllAfterOcr = false;
+            if (ReferenceEquals(_ocrCancellation, cancellation)) _ocrCancellation = null;
+        }
     }
     private async void ScanQr()
     {

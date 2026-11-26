@@ -10,10 +10,12 @@ internal sealed class SnipMenuRenderer : ToolStripProfessionalRenderer
     internal static Color Back => AppTheme.Current.Card;
     internal static Color Hover => AppTheme.Current.Hover;
 
-    public SnipMenuRenderer() : base(new SnipMenuColors())
+    public SnipMenuRenderer(bool roundedPopup) : base(new SnipMenuColors())
     {
-        RoundedEdges = true;
+        RoundedEdges = !roundedPopup;
     }
+
+    internal static float PopupRadius(Control popup) => 7 * popup.DeviceDpi / 96f;
 
     /// <summary>
     /// Render callbacks use item-local coordinates, even for rows below a separator.
@@ -85,7 +87,8 @@ internal sealed class SnipMenuRenderer : ToolStripProfessionalRenderer
         using var pen = new Pen(AppTheme.Current.Border, 1f);
         var bounds = new Rectangle(Point.Empty, e.ToolStrip.Size);
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        using var path = FluentDrawing.Rounded(new RectangleF(.5f, .5f, bounds.Width - 1, bounds.Height - 1), 7);
+        var radius = RoundedEdges ? 7 : PopupRadius(e.ToolStrip);
+        using var path = FluentDrawing.Rounded(new RectangleF(.5f, .5f, bounds.Width - 1, bounds.Height - 1), radius);
         e.Graphics.DrawPath(pen, path);
     }
 
@@ -121,7 +124,7 @@ internal sealed class SnipMenuRenderer : ToolStripProfessionalRenderer
 internal static class SnipMenu
 {
     // The menu owns the supplied font, including the default font allocated here.
-    public static ContextMenuStrip Create(Font? font = null)
+    public static ContextMenuStrip Create(Font? font = null, bool roundedPopup = false)
     {
         var ownedFont = font ?? new Font("Microsoft YaHei UI", 9f);
         var menu = new ContextMenuStrip
@@ -131,10 +134,21 @@ internal static class SnipMenu
             ForeColor = AppTheme.Current.Text,
             ShowImageMargin = false,
             ShowCheckMargin = true,
-            DropShadowEnabled = true,
-            Renderer = new SnipMenuRenderer(),
+            DropShadowEnabled = !roundedPopup,
+            Renderer = new SnipMenuRenderer(roundedPopup),
             Padding = new Padding(4)
         };
+        if (roundedPopup)
+        {
+            // Clip the popup window itself so all four corners show the surface behind it.
+            void UpdateRegion()
+            {
+                using var path = FluentDrawing.Rounded(menu.ClientRectangle, SnipMenuRenderer.PopupRadius(menu));
+                menu.Region = new Region(path);
+            }
+            menu.SizeChanged += (_, _) => UpdateRegion();
+            menu.Opened += (_, _) => UpdateRegion();
+        }
         void ApplyTheme() { if (!menu.IsDisposed) { menu.BackColor = SnipMenuRenderer.Back; menu.ForeColor = AppTheme.Current.Text; menu.Invalidate(true); } }
         AppTheme.Changed += ApplyTheme;
         menu.Disposed += (_, _) => { AppTheme.Changed -= ApplyTheme; ownedFont.Dispose(); };

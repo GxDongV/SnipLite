@@ -32,8 +32,10 @@ internal sealed class CaptureResult
 internal sealed partial class CaptureForm : Form
 {
     private const int MagnifierSize = 168;
+    private const int MaxStrokeWidth = 100;
 
     private readonly Rectangle _virtual;
+    private readonly Rectangle _initialSizeViewport;
     private readonly Bitmap _screenshot;
     private readonly bool _ocrCapture;
     private readonly bool _translationCapture;
@@ -58,6 +60,7 @@ internal sealed partial class CaptureForm : Form
     private Point _textDragCursor;
     private List<Shape>? _beforeTextDrag;
     private string? _slider;
+    private int? _strokeWidthPreview;
     private Bitmap? _annotationLayer;
     private Rectangle _annotationCrop;
     private bool _annotationDirty = true;
@@ -69,6 +72,12 @@ internal sealed partial class CaptureForm : Form
     private Rectangle _hoverTarget;
     private Rectangle _hoverWindow;
     private Rectangle _pressTarget;
+    private readonly HashSet<Rectangle> _targetCandidates = new();
+    private Point? _targetCandidatePoint;
+    private bool _wheelTargetSelected;
+    private int _targetWheelRemainder;
+    private int _targetWheelSteps;
+    private long _targetWheelTime;
     private bool _targetBusy;
     private readonly System.Windows.Forms.Timer _targetTimer = new() { Interval = 60 };
     private Point? _lastResolvedTargetPoint;
@@ -87,6 +96,9 @@ internal sealed partial class CaptureForm : Form
     private Point _anchor;
     private Point _cursor;
     private Rectangle _selection;
+    private Rectangle _selectionSizeBadge;
+    private bool _sizeBadgePressed;
+    private bool _sizeEditorOpen;
     private bool _dragging;
     private bool _hasSelection;
     private bool _showMagnifier;
@@ -118,7 +130,8 @@ internal sealed partial class CaptureForm : Form
     private Rectangle _ocrCrop;
     private string? _qrText;
     private Rectangle _lastMagnifierBounds;
-    private bool MagnifierVisible => _showMagnifier || _dragMode >= 3 || _settings.AutoMagnifier && !_hasSelection && !_dragging;
+    private bool MagnifierVisible => _showMagnifier || _dragMode >= 3 || _settings.AutoMagnifier && !_hasSelection;
+    private bool DrawingRectangleOrEllipse => _dragMode == 1 && _current is (RectShape or EllipseShape);
 
     public event Action<CaptureResult?>? Done;
     public event Action<string, Rectangle>? PluginRequested;
@@ -128,6 +141,8 @@ internal sealed partial class CaptureForm : Form
     public CaptureForm(Rectangle virtualScreen, CaptureMode mode, AppSettings settings, Rectangle? preset = null)
     {
         _virtual = virtualScreen;
+        _initialSizeViewport = LocalTarget(Screen.FromPoint(Win32.CursorPosition()).Bounds);
+        if (_initialSizeViewport.IsEmpty) _initialSizeViewport = new Rectangle(Point.Empty, _virtual.Size);
         _ocrCapture = mode == CaptureMode.Ocr;
         _translationCapture = mode == CaptureMode.Translation;
         _qrCaptureOnly = mode == CaptureMode.Qr;
@@ -307,6 +322,7 @@ internal sealed partial class CaptureForm : Form
             g.Restore(state);
 
             DrawSelection(g, _settings.CaptureAnchors && _hasSelection && !_ocrMode && !_recognitionBusy);
+            DrawAnnotationSelection(g);
 
             if (_hasSelection)
             {
@@ -314,6 +330,7 @@ internal sealed partial class CaptureForm : Form
                 _bar.CanRedo = _redo.Count > 0;
                 _bar.AttachedPanelHeight = TranslationVisible ? _translationPanel!.Height : 0;
                 _bar.HiddenButtons = _settings.HiddenToolbarButtons;
+                _bar.ButtonOrder = _settings.ToolbarButtonOrder;
                 _bar.PluginButtons = PluginButtons;
                 _bar.Layout(_selection, _virtual.Size);
                 LayoutTranslationPanel();
@@ -324,7 +341,6 @@ internal sealed partial class CaptureForm : Form
             {
                 _barVisible = false;
             }
-            DrawSelectionBadge(g);
         }
         else
         {
@@ -353,6 +369,46 @@ internal sealed partial class CaptureForm : Form
 
         if (MagnifierVisible)
             DrawMagnifier(g);
+
+        DrawSelectionBadge(g);
+        if (_hasSelection && _strokeWidthPreview is int width) DrawStrokeWidthPreview(g, width);
+    }
+
+    private void DrawStrokeWidthPreview(Graphics g, int width)
+    {
+        var diameter = width * Ui;
+        var center = new PointF(_selection.Left + _selection.Width / 2f, _selection.Top + _selection.Height / 2f);
+        var sample = new RectangleF(center.X - diameter / 2, center.Y - diameter / 2, diameter, diameter);
+        var state = g.Save();
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+
+        var rim = RectangleF.Inflate(sample, Ui, Ui);
+        using var darkEdge = new Pen(Color.FromArgb(200, Color.Black), 3 * Ui);
+        using var lightEdge = new Pen(Color.White, Ui);
+        g.DrawEllipse(darkEdge, rim);
+        g.DrawEllipse(lightEdge, rim);
+        if (_bar.Tool is not (ToolKind.Mosaic or ToolKind.Eraser))
+        {
+            var color = _bar.Tool == ToolKind.Marker ? Color.FromArgb(255 * _bar.MarkerOpacity / 100, _bar.Color) : _bar.Color;
+            using var ink = new SolidBrush(color);
+            g.FillEllipse(ink, sample);
+        }
+
+        var label = $"{Math.Round(diameter)} / {Math.Round(MaxStrokeWidth * Ui)} px";
+        var size = g.MeasureString(label, _badgeFont);
+        var padding = 6 * Ui;
+        var box = new RectangleF(center.X - size.Width / 2 - padding, sample.Bottom + 6 * Ui,
+            size.Width + 2 * padding, size.Height + padding);
+        if (box.Bottom > ClientSize.Height) box.Y = sample.Top - box.Height - 6 * Ui;
+        box.X = Math.Clamp(box.X, 0, Math.Max(0, ClientSize.Width - box.Width));
+        using var badge = FluentDrawing.Rounded(box, 5 * Ui);
+        using var back = new SolidBrush(AppTheme.Current.Card);
+        using var border = new Pen(AppTheme.Current.Border);
+        using var text = new SolidBrush(AppTheme.Current.Text);
+        g.FillPath(back, badge);
+        g.DrawPath(border, badge);
+        g.DrawString(label, _badgeFont, text, box.Left + padding, box.Top + padding / 2);
+        g.Restore(state);
     }
 
     private void DrawSelection(Graphics g, bool handles)
@@ -386,7 +442,10 @@ internal sealed partial class CaptureForm : Form
 
     private void DrawSelectionBadge(Graphics g)
     {
-        var r = _selection;
+        _selectionSizeBadge = Rectangle.Empty;
+        var hasRegion = _selection.Width > 0 && _selection.Height > 0;
+        var r = hasRegion ? _selection : new Rectangle(_initialSizeViewport.Location,
+            CaptureRegionForm.DefaultRegionSize(_initialSizeViewport.Size));
         if (_settings.HideOnePixelHint && r.Width <= 1 && r.Height <= 1) return;
 
         var label = $"{r.Width} × {r.Height}";
@@ -398,14 +457,18 @@ internal sealed partial class CaptureForm : Form
         viewport = Rectangle.Intersect(viewport, new Rectangle(Point.Empty, _virtual.Size));
         var obstacle = _barVisible ? _bar.Bounds : Rectangle.Empty;
         if (TranslationVisible) obstacle = Rectangle.Union(obstacle, _translationPanel!.Bounds);
-        var box = SelectionBadgeBounds(r, new Size((int)Math.Ceiling(size.Width) + padding * 2,
-            (int)Math.Ceiling(size.Height) + padding), viewport, obstacle, (int)Math.Ceiling(10 * Ui));
+        var badgeSize = new Size((int)Math.Ceiling(size.Width) + padding * 2, (int)Math.Ceiling(size.Height) + padding);
+        var gap = (int)Math.Ceiling(10 * Ui);
+        var box = hasRegion
+            ? SelectionBadgeBounds(r, badgeSize, viewport, obstacle, gap)
+            : new Rectangle(_initialSizeViewport.Left + gap, _initialSizeViewport.Top + gap, badgeSize.Width, badgeSize.Height);
+        if (!_dragging) _selectionSizeBadge = box;
 
         using var back = new SolidBrush(AppTheme.Current.Card);
         using var text = new SolidBrush(AppTheme.Current.Text);
         using var badge = FluentDrawing.Rounded(box, 6 * Ui);
         g.FillPath(back, badge);
-        using var border = new Pen(AppTheme.Current.Border);
+        using var border = new Pen(SelectionSizeHit(_cursor) ? _settings.Accent : AppTheme.Current.Border);
         g.DrawPath(border, badge);
         g.DrawString(label, _badgeFont, text, box.X + padding, box.Y + padding / 2);
     }
@@ -452,7 +515,7 @@ internal sealed partial class CaptureForm : Form
             g.FillRectangle(bg, box);
 
         g.DrawImage(_screenshot, box, source, GraphicsUnit.Pixel);
-        if (_hasSelection)
+        if (_selection.Width > 0 && _selection.Height > 0)
         {
             var state = g.Save();
             g.SetClip(box);
@@ -466,7 +529,7 @@ internal sealed partial class CaptureForm : Form
             }
             if (_settings.MagnifierBorder)
             { using var selectionPen = new Pen(_settings.Accent, 1f / Zoom); g.DrawRectangle(selectionPen, _selection); }
-            if (_settings.MagnifierAnchors)
+            if (_settings.MagnifierAnchors && _hasSelection)
             { using var anchor = new SolidBrush(Color.FromArgb(_settings.CaptureAnchorColor)); foreach (var p in Anchors(_selection)) g.FillRectangle(anchor, p.X - 1, p.Y - 1, 2, 2); }
             g.Restore(state);
         }
@@ -513,6 +576,8 @@ internal sealed partial class CaptureForm : Form
 
     private string? ToolbarHitTest(Point point) => _barVisible ? _bar.HitTest(point) : null;
     private bool ToolbarContains(Point point) => _barVisible && _bar.Bounds.Contains(point);
+    private bool SelectionSizeHit(Point point) => !_finished && !_sizeEditorOpen && !_dragging
+        && _dragMode == 0 && !_recognitionBusy && _selectionSizeBadge.Contains(point);
 
     protected override void OnMouseDown(MouseEventArgs e)
     {
@@ -528,6 +593,13 @@ internal sealed partial class CaptureForm : Form
 
         var p = Clamp(e.Location);
         _cursor = p;
+
+        if (SelectionSizeHit(p))
+        {
+            _sizeBadgePressed = true;
+            Capture = true;
+            return;
+        }
 
         if (_ocrMode || _recognitionBusy)
         {
@@ -563,7 +635,8 @@ internal sealed partial class CaptureForm : Form
                 using var graphics = CreateGraphics();
                 onTextResize = Rectangle.Inflate(TextResizeHandle(graphics, _activeText), AnchorHit / 2, AnchorHit / 2).Contains(p);
             }
-            if (_ime is not null && _textPreviewBounds.Contains(p) && !onTextResize)
+            var cloneAnnotation = (ModifierKeys & Keys.Control) != 0;
+            if (_ime is not null && _textPreviewBounds.Contains(p) && !onTextResize && !cloneAnnotation)
             {
                 var extend = (ModifierKeys & Keys.Shift) != 0;
                 var previousAnchor = _ime.SelectionStart;
@@ -573,6 +646,7 @@ internal sealed partial class CaptureForm : Form
                 return;
             }
             CommitText();
+            if (BeginAnnotationDrag(p, cloneAnnotation)) return;
             if (_activeText is not null)
             {
                 using var graphics = CreateGraphics();
@@ -606,6 +680,7 @@ internal sealed partial class CaptureForm : Form
                 }
 
                 _activeText = null;
+                _anchor = p;
                 var width = _bar.Tool == ToolKind.Marker ? _bar.MarkerWidth
                     : _bar.Tool is ToolKind.Eraser or ToolKind.Mosaic ? _bar.BrushWidth : _bar.StrokeWidth;
                 _current = Shape.Create(_bar.Tool, p, _bar.Color, width * Ui);
@@ -655,6 +730,7 @@ internal sealed partial class CaptureForm : Form
         // native target at the actual click instead of accepting an old highlight.
         if (!_hasSelection) UpdateTarget();
         _pressTarget = _hoverTarget.Contains(p) ? _hoverTarget : Rectangle.Empty;
+        _targetWheelRemainder = _targetWheelSteps = 0;
         _dragging = true;
         _dragMode = 1;
         _hasSelection = false;
@@ -663,6 +739,7 @@ internal sealed partial class CaptureForm : Form
         _undo.Clear();
         _redo.Clear();
         _activeText = null;
+        _selectedAnnotation = null;
         _annotationDirty = true;
         _bar.Tool = ToolKind.None;
         Invalidate();
@@ -673,6 +750,12 @@ internal sealed partial class CaptureForm : Form
         var previous = _cursor;
         var previousSelection = _selection;
         _cursor = Clamp(e.Location);
+        if (_annotationDrag is not null)
+        {
+            DragAnnotation(_cursor, (ModifierKeys & Keys.Shift) != 0);
+            return;
+        }
+        if (SelectionSizeHit(previous) != SelectionSizeHit(_cursor)) Invalidate(_selectionSizeBadge);
 
         if (_selectingEditorText && _ime is not null)
         {
@@ -722,7 +805,7 @@ internal sealed partial class CaptureForm : Form
 
         if (_current != null && _dragMode == 1)
         {
-            _current.DragTo(_cursor);
+            _current.DragTo(AnnotationDragPoint(_cursor, (ModifierKeys & Keys.Shift) != 0));
             _annotationDirty = true;
             Repaint();
         }
@@ -768,6 +851,24 @@ internal sealed partial class CaptureForm : Form
 
     protected override void OnMouseUp(MouseEventArgs e)
     {
+        if (_annotationDrag is not null && e.Button == MouseButtons.Left)
+        {
+            DragAnnotation(Clamp(e.Location), (ModifierKeys & Keys.Shift) != 0);
+            FinishAnnotationDrag(cancel: false);
+            return;
+        }
+        if (_sizeBadgePressed && e.Button == MouseButtons.Left)
+        {
+            _sizeBadgePressed = false;
+            if (SelectionSizeHit(e.Location))
+            {
+                _sizeEditorOpen = true;
+                // Open after WinForms finishes the click and releases mouse capture.
+                BeginInvoke(EditSelectionSize);
+            }
+            Capture = false;
+            return;
+        }
         if (_selectingEditorText)
         {
             _selectingEditorText = false; Capture = false; _ime?.Focus(); return;
@@ -778,7 +879,13 @@ internal sealed partial class CaptureForm : Form
             { _undo.Push(_beforeTextDrag); _redo.Clear(); }
             _beforeTextDrag = null; _resizingText = false; Capture = false; InvalidateAnnotations(); return;
         }
-        if (_slider is not null) { _slider = null; Capture = false; return; }
+        if (_slider is { } slider)
+        {
+            _slider = null;
+            CommitAnnotationSlider(slider);
+            Capture = false;
+            return;
+        }
         if (_movingText)
         {
             if (_activeText is not null && _activeText.At != _textDragOrigin && _beforeTextDrag is not null)
@@ -800,6 +907,8 @@ internal sealed partial class CaptureForm : Form
         }
         if (_current != null && _dragMode == 1)
         {
+            if (DrawingRectangleOrEllipse)
+                _current.DragTo(AnnotationDragPoint(Clamp(e.Location), (ModifierKeys & Keys.Shift) != 0));
             if (!_current.IsEmpty)
             {
                 SaveUndo();
@@ -829,14 +938,7 @@ internal sealed partial class CaptureForm : Form
                 _hasSelection = true;
             }
 
-            Invalidate();
-            if (TryCopyAndExitAfterSelection()) return;
-            if (_hasSelection && _settings.CopyAfterCapture && !_ocrCapture && !_qrCaptureOnly && !_translationCapture)
-                CopySelectionToClipboard();
-            if (_translationCapture && _hasSelection && !TranslationVisible) _ = TranslateSelectionAsync();
-            else if (_ocrCapture && _hasSelection) _ = RecognizeSelectionAsync(ocr: true);
-            else if (_qrCaptureOnly && _hasSelection) _ = RecognizeSelectionAsync(ocr: false);
-            else RefreshTranslationSelection();
+            CompleteSelectionChange();
             return;
         }
 
@@ -849,21 +951,62 @@ internal sealed partial class CaptureForm : Form
             }
             _dragMode = 0;
             Capture = false;
-            Invalidate();
-            if (TryCopyAndExitAfterSelection()) return;
-            if (_hasSelection && _settings.CopyAfterCapture && !_ocrCapture && !_qrCaptureOnly && !_translationCapture)
-                CopySelectionToClipboard();
-            if (_translationCapture && _hasSelection && !TranslationVisible) _ = TranslateSelectionAsync();
-            else if (_ocrCapture && _hasSelection) _ = RecognizeSelectionAsync(ocr: true);
-            else if (_qrCaptureOnly && _hasSelection) _ = RecognizeSelectionAsync(ocr: false);
-            else RefreshTranslationSelection();
+            CompleteSelectionChange();
+        }
+    }
+
+    private void CompleteSelectionChange()
+    {
+        Invalidate();
+        if (TryCopyAndExitAfterSelection()) return;
+        if (_hasSelection && _settings.CopyAfterCapture && !_ocrCapture && !_qrCaptureOnly && !_translationCapture)
+            CopySelectionToClipboard();
+        if (_translationCapture && _hasSelection && !TranslationVisible) _ = TranslateSelectionAsync();
+        else if (_ocrCapture && _hasSelection) _ = RecognizeSelectionAsync(ocr: true);
+        else if (_qrCaptureOnly && _hasSelection) _ = RecognizeSelectionAsync(ocr: false);
+        else RefreshTranslationSelection();
+    }
+
+    private void EditSelectionSize()
+    {
+        try
+        {
+            if (_finished || IsDisposed) return;
+            _toolTip.Hide(this);
+            var size = _hasSelection ? _selection.Size : CaptureRegionForm.DefaultRegionSize(_initialSizeViewport.Size);
+            using var dialog = new CaptureRegionForm(_settings, size, _virtual.Size) { TopMost = TopMost };
+            if (dialog.ShowDialog(this) != DialogResult.OK || _finished || IsDisposed) return;
+
+            size = dialog.RegionSize;
+            var origin = _hasSelection ? _selection.Location : new Point(
+                _initialSizeViewport.Left + (_initialSizeViewport.Width - size.Width) / 2,
+                _initialSizeViewport.Top + (_initialSizeViewport.Height - size.Height) / 2);
+            var bounds = new Rectangle(Math.Clamp(origin.X, 0, _virtual.Width - size.Width),
+                Math.Clamp(origin.Y, 0, _virtual.Height - size.Height), size.Width, size.Height);
+            if (_hasSelection && _selection == bounds) return;
+
+            CommitText();
+            if (_ocrMode) ExitRecognition();
+            ClearQrResult();
+            _selection = bounds;
+            _hasSelection = true;
+            _annotationDirty = true;
+            CompleteSelectionChange();
+        }
+        finally
+        {
+            _sizeEditorOpen = false;
+            RestoreEditorFocus();
         }
     }
 
     protected override void OnMouseCaptureChanged(EventArgs e)
     {
         base.OnMouseCaptureChanged(e);
-        if (!Capture && _dragMode >= 3)
+        if (Capture) return;
+        if (_annotationDrag is not null) FinishAnnotationDrag(cancel: true);
+        _sizeBadgePressed = false;
+        if (_dragMode >= 3)
         {
             _dragMode = 0;
             Invalidate();
@@ -881,7 +1024,7 @@ internal sealed partial class CaptureForm : Form
         // A double-click on the toolbar is the user cycling the line width (or
         // picking two colours in a row), not "copy this selection" — committing
         // here used to close the overlay right after the first real click.
-        if (ToolbarHitTest(p) != null) return;
+        if (ToolbarHitTest(p) != null || SelectionSizeHit(p) || _annotationDrag is not null || HitAnnotation(p) is not null) return;
 
         // Same for the dimmed desktop outside the selection.
         if (!_selection.Contains(p)) return;
@@ -891,6 +1034,7 @@ internal sealed partial class CaptureForm : Form
 
     protected override bool ProcessCmdKey(ref Message m, Keys keyData)
     {
+        if (HandleAnnotationShortcut(keyData)) return true;
         if (_ime is null && keyData != Keys.None && HotkeyDefinitions.WithWindowsKey(keyData) == _settings.CopyCoordinatesHotkey)
         {
             _cursor = CursorToLocal();
@@ -959,7 +1103,7 @@ internal sealed partial class CaptureForm : Form
                 _dragMode = 0;
                 Capture = false;
             }
-            else if (_activeText is not null) _activeText = null;
+            else if (SelectedAnnotation is not null) SelectAnnotation(null);
             else if (_bar.Tool != ToolKind.None)
             {
                 _bar.Tool = ToolKind.None;
@@ -1045,6 +1189,19 @@ internal sealed partial class CaptureForm : Form
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
+        if (e.KeyCode == Keys.ShiftKey && CanConstrainAnnotationResize)
+        {
+            DragAnnotation(_cursor, constrain: true);
+            e.SuppressKeyPress = true;
+            return;
+        }
+        if (e.KeyCode == Keys.ShiftKey && DrawingRectangleOrEllipse)
+        {
+            _current!.DragTo(AnnotationDragPoint(_cursor, constrain: true));
+            e.SuppressKeyPress = true;
+            InvalidateAnnotations();
+            return;
+        }
         if (e.KeyCode == Keys.ShiftKey && MagnifierVisible)
         {
             _hexColor = !_hexColor;
@@ -1064,6 +1221,13 @@ internal sealed partial class CaptureForm : Form
 
     protected override void OnKeyUp(KeyEventArgs e)
     {
+        if (e.KeyCode == Keys.ShiftKey && CanConstrainAnnotationResize)
+            DragAnnotation(_cursor, constrain: e.Shift);
+        if (e.KeyCode == Keys.ShiftKey && DrawingRectangleOrEllipse)
+        {
+            _current!.DragTo(AnnotationDragPoint(_cursor, constrain: e.Shift));
+            InvalidateAnnotations();
+        }
         if (e.KeyCode == Keys.Menu)
         {
             _showMagnifier = false;
@@ -1078,10 +1242,16 @@ internal sealed partial class CaptureForm : Form
     private void SetTool(ToolKind tool)
     {
         CommitText();
+        ActivateTool(_bar.Tool == tool ? ToolKind.None : tool);
+    }
+
+    private void ActivateTool(ToolKind tool)
+    {
+        _selectedAnnotation = null;
         _activeText = null;
-        if (_bar.Tool == ToolKind.Marker) { _markerColor = _bar.Color; _bar.Color = _drawingColor; }
+        if (_bar.Tool == ToolKind.Marker && tool != ToolKind.Marker) { _markerColor = _bar.Color; _bar.Color = _drawingColor; }
         if (tool == ToolKind.Marker && _bar.Tool != ToolKind.Marker) { _drawingColor = _bar.Color; _bar.Color = _markerColor; }
-        _bar.Tool = _bar.Tool == tool ? ToolKind.None : tool;
+        _bar.Tool = tool;
         Invalidate();
     }
 
@@ -1097,7 +1267,12 @@ internal sealed partial class CaptureForm : Form
         if (id == "colorcur")
         {
             using var picker = new ColorDialog { Color = _bar.Color, FullOpen = true, AnyColor = true };
-            if (picker.ShowDialog(this) == DialogResult.OK) { _bar.Color = picker.Color; RestyleText(); }
+            if (picker.ShowDialog(this) == DialogResult.OK)
+            {
+                _bar.Color = picker.Color;
+                RestyleText();
+                ChangeAnnotationStyle<Shape>(shape => shape.Color != _bar.Color, shape => shape.Color = _bar.Color);
+            }
             RestoreEditorFocus();
             Invalidate();
             return;
@@ -1109,6 +1284,7 @@ internal sealed partial class CaptureForm : Form
         {
             _bar.Color = AnnotationBar.Palette[colorIndex];
             RestyleText();
+            ChangeAnnotationStyle<Shape>(shape => shape.Color != _bar.Color, shape => shape.Color = _bar.Color);
             Invalidate();
             return;
         }
@@ -1145,6 +1321,7 @@ internal sealed partial class CaptureForm : Form
 
             case "fill":
                 _bar.Fill = !_bar.Fill;
+                ChangeAnnotationStyle<Shape>(shape => shape.Fill != _bar.Fill, shape => shape.Fill = _bar.Fill);
                 Invalidate();
                 return;
 
@@ -1194,6 +1371,7 @@ internal sealed partial class CaptureForm : Form
     {
         ClearQrResult();
         _shapes.Clear(); _shapes.AddRange(shapes); _activeText = null;
+        _selectedAnnotation = null;
         InvalidateAnnotations();
     }
     private void InvalidateAnnotations() { _annotationDirty = true; Invalidate(); }
@@ -1240,16 +1418,19 @@ internal sealed partial class CaptureForm : Form
     {
         if (_targets is null || _dragging) return;
         var screen = new Point(_cursor.X + _virtual.X, _cursor.Y + _virtual.Y);
-        var target = _targets.At(screen, _settings.DetectElements, includeAutomation: false);
-        if (!target.IsEmpty) target.Offset(-_virtual.X, -_virtual.Y);
-        var next = Rectangle.Intersect(target, new Rectangle(Point.Empty, _virtual.Size));
-        if (next == _hoverWindow && _settings.DetectElements && _hoverTarget.Contains(_cursor)) next = _hoverTarget;
-        _hoverWindow = Rectangle.Intersect(target, new Rectangle(Point.Empty, _virtual.Size));
-        if (next != _hoverTarget)
+        if (_targetCandidatePoint != screen)
         {
-            var dirty = Rectangle.Union(_hoverTarget, next); dirty.Inflate(4, 4);
-            _hoverTarget = next; Invalidate(dirty);
+            _targetCandidatePoint = screen;
+            _targetCandidates.Clear();
+            _wheelTargetSelected = false;
+            _targetWheelRemainder = _targetWheelSteps = 0;
         }
+        var native = _targets.At(screen, _settings.DetectElements, includeAutomation: false,
+            candidates: _settings.DetectElements ? _targetCandidates : null);
+        var target = LocalTarget(native);
+        if (!_wheelTargetSelected && (target != _hoverWindow || !_settings.DetectElements || !_hoverTarget.Contains(_cursor)))
+            SetHoverTarget(target);
+        _hoverWindow = target;
         // A coarse/empty result is not final: accessibility trees often become
         // ready after focus changes. Retry even when the pointer stays still.
         var now = Environment.TickCount64;
@@ -1259,13 +1440,17 @@ internal sealed partial class CaptureForm : Form
             || _lastResolvedTargetPoint == screen && now - _lastTargetResolvedAt < 350) return;
         _targetBusy = true;
         _lastTargetQuery = Environment.TickCount64;
-        _ = Task.Run(() => _targets.AccessibleAt(screen)).ContinueWith(task =>
+        _ = Task.Run(() =>
+        {
+            var candidates = new HashSet<Rectangle>();
+            return (Target: _targets.AccessibleAt(screen, candidates), Candidates: candidates);
+        }).ContinueWith(task =>
         {
             if (IsDisposed || !IsHandleCreated) return;
             try { BeginInvoke(() =>
             {
                 _targetBusy = false;
-                if (task.IsCompletedSuccessfully) ApplyResolvedTarget(screen, task.Result);
+                if (task.IsCompletedSuccessfully) ApplyResolvedTarget(screen, task.Result.Target, task.Result.Candidates);
                 _lastResolvedTargetPoint = screen;
                 _lastTargetResolvedAt = Environment.TickCount64;
             }); } catch (InvalidOperationException) { }
@@ -1279,34 +1464,101 @@ internal sealed partial class CaptureForm : Form
         if (_automationPoints.Count >= 2 || _automationPoints.Contains(screen) || now - _lastAutomationQuery < 120
             || _lastAutomationPoint == screen && now - _lastAutomationResolvedAt < 750) return;
         _automationPoints.Add(screen); _lastAutomationQuery = now;
-        _ = Task.Run(() => _targets!.AutomationAt(screen)).ContinueWith(task =>
+        _ = Task.Run(() =>
+        {
+            var candidates = new HashSet<Rectangle>();
+            return (Target: _targets!.AutomationAt(screen, candidates), Candidates: candidates);
+        }).ContinueWith(task =>
         {
             if (IsDisposed || !IsHandleCreated) return;
             try { BeginInvoke(() =>
             {
                 _automationPoints.Remove(screen);
                 _lastAutomationPoint = screen; _lastAutomationResolvedAt = Environment.TickCount64;
-                if (task.IsCompletedSuccessfully) ApplyResolvedTarget(screen, task.Result);
+                if (task.IsCompletedSuccessfully) ApplyResolvedTarget(screen, task.Result.Target, task.Result.Candidates);
             }); } catch (InvalidOperationException) { }
         });
     }
 
-    private void ApplyResolvedTarget(Point screen, Rectangle element)
+    private Rectangle LocalTarget(Rectangle screenTarget)
     {
-        if (_finished || _hasSelection || _dragging || element.IsEmpty
+        if (screenTarget.IsEmpty) return Rectangle.Empty;
+        screenTarget.Offset(-_virtual.X, -_virtual.Y);
+        return Rectangle.Intersect(screenTarget, new Rectangle(Point.Empty, _virtual.Size));
+    }
+
+    private void ApplyResolvedTarget(Point screen, Rectangle element, HashSet<Rectangle> candidates)
+    {
+        if (_finished || _hasSelection || _dragging || !_settings.DetectElements || _targetCandidatePoint != screen
             || _cursor.X + _virtual.X != screen.X || _cursor.Y + _virtual.Y != screen.Y) return;
-        element.Offset(-_virtual.X, -_virtual.Y);
-        var next = Rectangle.Intersect(element, new Rectangle(Point.Empty, _virtual.Size));
-        // The desktop is frozen: a late coarse result must not replace an
-        // already resolved smaller target at the same pointer position.
-        if (!next.Contains(_cursor) || next == _hoverTarget
-            || !_hoverTarget.IsEmpty && (long)next.Width * next.Height >= (long)_hoverTarget.Width * _hoverTarget.Height) return;
+        _targetCandidates.UnionWith(candidates);
+        var next = LocalTarget(element);
+        if (!_wheelTargetSelected && next.Contains(_cursor)
+            && (_hoverTarget.IsEmpty || TargetArea(next) < TargetArea(_hoverTarget)))
+            SetHoverTarget(next);
+        ApplyTargetWheel();
+    }
+
+    private static long TargetArea(Rectangle bounds) => (long)bounds.Width * bounds.Height;
+
+    private void SetHoverTarget(Rectangle next)
+    {
+        if (next == _hoverTarget) return;
         var dirty = Rectangle.Union(_hoverTarget, next); dirty.Inflate(4, 4);
         _hoverTarget = next; Invalidate(dirty);
     }
+
+    private void ApplyTargetWheel()
+    {
+        // A wheel event can arrive before an accessibility provider has replied.
+        // Keep it briefly for the current point, including at either end of the hierarchy.
+        if (Environment.TickCount64 - _targetWheelTime > 750) _targetWheelSteps = 0;
+        while (_targetWheelSteps != 0 && !_hoverTarget.IsEmpty)
+        {
+            var parent = _targetWheelSteps > 0;
+            var nearest = Rectangle.Empty;
+            foreach (var screenTarget in _targetCandidates)
+            {
+                var candidate = LocalTarget(screenTarget);
+                if (candidate == _hoverTarget || !candidate.Contains(_cursor)) continue;
+                if (parent
+                    ? candidate.Contains(_hoverTarget) && (nearest.IsEmpty || TargetArea(candidate) < TargetArea(nearest))
+                    : _hoverTarget.Contains(candidate) && TargetArea(candidate) > TargetArea(nearest))
+                    nearest = candidate;
+            }
+            if (nearest.IsEmpty) break;
+            _targetWheelSteps += parent ? -1 : 1;
+            _wheelTargetSelected = true;
+            SetHoverTarget(nearest);
+        }
+    }
+
     protected override void OnMouseWheel(MouseEventArgs e)
     {
         if (_settings.DisableCaptureWheel || _ocrMode || _recognitionBusy) return;
+        if (!_finished && !_hasSelection && !_dragging && _settings.DetectElements
+            && !_showMagnifier && (ModifierKeys & Keys.Alt) == 0 && e.Delta != 0)
+        {
+            var previous = _cursor;
+            _cursor = Clamp(e.Location);
+            UpdateTarget();
+            if (previous != _cursor) RepaintCrosshair(previous);
+            if (!_hoverTarget.IsEmpty)
+            {
+                const int wheelDelta = 120;
+                var direction = Math.Sign(e.Delta);
+                if (direction != Math.Sign(_targetWheelSteps) || Environment.TickCount64 - _targetWheelTime > 750)
+                    _targetWheelSteps = 0;
+                if (direction != Math.Sign(_targetWheelRemainder) || Environment.TickCount64 - _targetWheelTime > 750)
+                    _targetWheelRemainder = 0;
+                _targetWheelTime = Environment.TickCount64;
+                _targetWheelRemainder += e.Delta;
+                _targetWheelSteps = Math.Clamp(_targetWheelSteps + _targetWheelRemainder / wheelDelta, -32, 32);
+                _targetWheelRemainder %= wheelDelta;
+                ApplyTargetWheel();
+                return;
+            }
+        }
         if (MagnifierVisible)
         {
             _magnifierZoom = Math.Clamp(_magnifierZoom + Math.Sign(e.Delta), 2, 16);
@@ -1320,10 +1572,10 @@ internal sealed partial class CaptureForm : Form
     {
         _crosshair?.Hide();
         base.OnDeactivate(e);
-        if (!_settings.ExitCaptureOnDeactivate || _finished) return;
+        if (!_settings.ExitCaptureOnDeactivate || _finished || _sizeEditorOpen) return;
         BeginInvoke(() =>
         {
-            if (!IsDisposed && !ContainsFocus && !OwnedForms.Any(form => form.Visible) && !_optionMenus.Any(menu => menu.Visible)) Cancel();
+            if (!IsDisposed && !_sizeEditorOpen && !ContainsFocus && !OwnedForms.Any(form => form.Visible) && !_optionMenus.Any(menu => menu.Visible)) Cancel();
         });
     }
     private void ExecuteAction(CaptureAction action, bool exit)
@@ -1418,14 +1670,36 @@ internal sealed partial class CaptureForm : Form
         var menu = SnipMenu.Create();
         var value = _bar.Tool == ToolKind.Marker ? _bar.MarkerWidth
             : _bar.Tool is ToolKind.Mosaic or ToolKind.Eraser ? _bar.BrushWidth : _bar.StrokeWidth;
-        var slider = new TrackBar { Minimum = 1, Maximum = 100, Value = (int)value, TickFrequency = 10, Width = (int)(220 * Ui) };
+        var slider = new TrackBar { Minimum = 1, Maximum = MaxStrokeWidth, Value = Math.Clamp((int)value, 1, MaxStrokeWidth), TickFrequency = 10, Width = (int)(220 * Ui) };
+        var selected = _selectedAnnotation;
+        var savedUndo = false;
         slider.ValueChanged += (_, _) =>
         {
+            if (slider.Capture) _strokeWidthPreview = slider.Value;
             if (_bar.Tool == ToolKind.Marker) _bar.MarkerWidth = slider.Value;
             else if (_bar.Tool is ToolKind.Mosaic or ToolKind.Eraser) _bar.BrushWidth = slider.Value;
             else _bar.StrokeWidth = slider.Value;
+            if (selected is not null && ReferenceEquals(selected, _selectedAnnotation) && selected.Width != slider.Value * Ui)
+            {
+                if (!savedUndo) { SaveUndo(); savedUndo = true; }
+                selected.Width = slider.Value * Ui;
+                InvalidateAnnotations();
+            }
             Invalidate();
         };
+        void EndPreview(bool closePicker)
+        {
+            if (_strokeWidthPreview is null) return;
+            _strokeWidthPreview = null;
+            if (_finished) return;
+            Invalidate();
+            // Let the native trackbar finish processing mouse release before closing its menu.
+            if (closePicker && IsHandleCreated)
+                BeginInvoke(() => { if (menu.Visible) menu.Close(); });
+        }
+        slider.MouseUp += (_, e) => { if (e.Button == MouseButtons.Left) EndPreview(closePicker: true); };
+        slider.MouseCaptureChanged += (_, _) => { if (!slider.Capture) EndPreview(closePicker: true); };
+        menu.Closed += (_, _) => EndPreview(closePicker: false);
         menu.Items.Add(new ToolStripControlHost(slider));
         ShowOptionMenu(menu, "width");
     }
@@ -1442,7 +1716,13 @@ internal sealed partial class CaptureForm : Form
         // margins. Reserve that inset instead of clipping the hosted control.
         menu.AutoSize = false;
         menu.Size = new Size(gallery.Width + (int)Math.Ceiling(20 * Ui), gallery.Height + (int)Math.Ceiling(8 * Ui));
-        gallery.Chosen += style => { _bar.ArrowStyle = style; menu.Close(); Invalidate(); };
+        gallery.Chosen += style =>
+        {
+            _bar.ArrowStyle = style;
+            ChangeAnnotationStyle<ArrowShape>(arrow => arrow.Style != style, arrow => arrow.Style = style);
+            menu.Close();
+            Invalidate();
+        };
         ShowOptionMenu(menu, "arrowstyle");
     }
 
@@ -1598,6 +1878,7 @@ internal sealed partial class CaptureForm : Form
     private void UpdateHint()
     {
         var hint = AnnotationBar.Hint(ToolbarHitTest(_cursor), _ocrMode);
+        if (SelectionSizeHit(_cursor)) hint = UiText.T("自定义截屏区域");
         var plugin = PluginButtons.FirstOrDefault(p => p.Id == ToolbarHitTest(_cursor));
         if (plugin.Id is not null) hint = plugin.Title;
         if (ToolbarHitTest(_cursor) == "pin")
@@ -1721,7 +2002,7 @@ internal sealed partial class CaptureForm : Form
 
     internal bool TryPinSelection()
     {
-        if (_finished || !_hasSelection || _dragging || _current is not null || _movingText || _resizingText || _dragMode != 0)
+        if (_finished || _sizeEditorOpen || !_hasSelection || _dragging || _current is not null || _annotationDrag is not null || _movingText || _resizingText || _dragMode != 0)
             return false;
         if (Crop.Width < 1 || Crop.Height < 1) return false;
         _resultPin = true;
@@ -2061,6 +2342,18 @@ internal sealed partial class CaptureForm : Form
 
     // --------------------------------------------------------------- helpers
 
+    private Point AnnotationDragPoint(Point point, bool constrain)
+    {
+        if (!constrain || !DrawingRectangleOrEllipse) return point;
+
+        var dx = point.X - _anchor.X;
+        var dy = point.Y - _anchor.Y;
+        var horizontalRoom = dx < 0 ? _anchor.X - _selection.Left : _selection.Right - _anchor.X;
+        var verticalRoom = dy < 0 ? _anchor.Y - _selection.Top : _selection.Bottom - _anchor.Y;
+        var side = Math.Min(Math.Max(Math.Abs(dx), Math.Abs(dy)), Math.Min(horizontalRoom, verticalRoom));
+        return new Point(_anchor.X + (dx < 0 ? -side : side), _anchor.Y + (dy < 0 ? -side : side));
+    }
+
     private Point Clamp(Point p) => new(
         Math.Clamp(p.X, 0, _virtual.Width - 1),
         Math.Clamp(p.Y, 0, _virtual.Height - 1));
@@ -2187,6 +2480,7 @@ internal sealed partial class CaptureForm : Form
         var fullCrosshair = _crosshair is not null && !_hasSelection && !_dragging && !_finished && ContainsFocus;
         // Keep the familiar native small cross as a visible centre marker.
         if (fullCrosshair) _crosshair!.Move(_cursor); else _crosshair?.Hide();
+        if (SelectionSizeHit(_cursor)) { Cursor = Cursors.Hand; return; }
         if (_recognitionBusy) { Cursor = ToolbarHitTest(_cursor) is not null ? Cursors.Hand : Cursors.AppStarting; return; }
         if (_ocrMode)
         {
@@ -2219,6 +2513,7 @@ internal sealed partial class CaptureForm : Form
                 SetTextCursor(hitText);
                 return;
             }
+            if (SetAnnotationCursor(_cursor)) return;
             if (_bar.Tool != ToolKind.None && _selection.Contains(_cursor))
             {
                 Cursor = Cursors.Cross;

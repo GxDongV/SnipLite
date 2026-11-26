@@ -265,6 +265,7 @@ internal sealed partial class PreferencesForm
     {
         Flag("自动检测窗口", nameof(_s.DetectWindows)); Flag("隐藏 1×1 提示", nameof(_s.HideOnePixelHint));
         Flag("自动检测界面元素", nameof(_s.DetectElements));
+        HintText("鼠标指向元素时，向上滚动选择父元素，向下滚动选择子元素。");
         Flag("捕捉鼠标指针", nameof(_s.CaptureCursor)); Flag("完全禁用鼠标指针捕捉", nameof(_s.DisableCursorCapture));
         Flag("其他程序窗口激活时退出截屏", nameof(_s.ExitCaptureOnDeactivate));
         Number("截图及贴图各自的历史上限", nameof(_s.HistoryImageLimit), 0, 100);
@@ -358,13 +359,53 @@ internal sealed partial class PreferencesForm
         Flag("显示操作通知", nameof(_s.ShowToast));
         Flag("快速保存时显示通知", nameof(_s.QuickSaveToast)); FolderRow("快速保存路径", nameof(_s.QuickSaveDirectory));
         Flag("自动保存", nameof(_s.AutoSave)); FolderRow("自动保存路径", nameof(_s.SaveDirectory));
+        AutoSaveRetentionRow();
         HintText("命名支持 $yyyy$ $MM$ $dd$ $HH$ $mm$ $ss$ 和 $yyyy-MM-dd_HH-mm-ss$。");
+    }
+
+    private void AutoSaveRetentionRow()
+    {
+        var mode = (AutoSaveRetentionMode)Value(nameof(_s.AutoSaveRetention));
+        var count = MakeNumber(1, AppSettings.MaxAutoSaveCount, (int)Value(nameof(_s.AutoSaveKeepCount)), 140,
+            value => Set(nameof(_s.AutoSaveKeepCount), value));
+        var days = MakeNumber(1, AppSettings.MaxAutoSaveDays, (int)Value(nameof(_s.AutoSaveKeepDays)), 140,
+            value => Set(nameof(_s.AutoSaveKeepDays), value));
+        count.AccessibleName = "保留最新截图张数";
+        days.AccessibleName = "保留天数";
+        var countFrame = new FluentInputFrame(count) { Height = Px(ControlH) };
+        var daysFrame = new FluentInputFrame(days) { Height = Px(ControlH) };
+        var unit = MakeStatic("");
+        unit.Location = new Point(countFrame.Width + Px(ControlGap), 0);
+        var editor = new Panel { Height = Px(ControlH), BackColor = AppTheme.Current.Card };
+        editor.Controls.AddRange([countFrame, daysFrame, unit]);
+
+        void UpdateInputs(AutoSaveRetentionMode selection)
+        {
+            countFrame.Visible = selection == AutoSaveRetentionMode.Count;
+            daysFrame.Visible = selection == AutoSaveRetentionMode.Days;
+            editor.Visible = selection is AutoSaveRetentionMode.Count or AutoSaveRetentionMode.Days;
+            unit.Text = UiText.T(selection == AutoSaveRetentionMode.Count ? "张" : "天", _s.DisplayLanguage);
+            unit.Top = (editor.Height - unit.Height) / 2;
+        }
+        var chooser = MakeChooser(["全部保留", "按张数保留", "按天数保留"], (int)mode, index =>
+        {
+            var selection = (AutoSaveRetentionMode)index;
+            Set(nameof(_s.AutoSaveRetention), selection);
+            UpdateInputs(selection);
+        });
+        editor.Width = FillWidth() - chooser.Width - Px(ControlGap);
+        Row("自动保存保留规则", chooser, editor);
+        editor.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+        UpdateInputs(mode);
+        HintText("每次启动约两分钟后清理一次，仅删除此功能记录的自动保存截图。");
     }
     private void OutputClipboardPage()
     {
         Flag("截屏：同时复制 Windows Bitmap 格式", nameof(_s.CaptureBitmapClipboard));
         Flag("贴图：同时复制 Windows Bitmap 格式", nameof(_s.PinBitmapClipboard));
         HintText("始终保留 PNG 格式；Bitmap 用于兼容只接受位图的应用。");
+        Flag("复制图片时同时复制 PNG 文件", nameof(_s.CopyImageAsFile));
+        HintText("复制截图或贴图后，在文件资源管理器中按 Ctrl+V 保存 PNG 文件。");
     }
     private void HotkeysPage()
     {

@@ -125,6 +125,34 @@ internal sealed class ArrowShape : Shape
 
     public override void DragTo(Point p) => End = p;
 
+    internal bool HitHead(Point point, float tolerance)
+    {
+        if (Style == ArrowStyle.Line) return false;
+        var length = MathF.Sqrt((float)(End.X - Start.X) * (End.X - Start.X) +
+            (float)(End.Y - Start.Y) * (End.Y - Start.Y));
+        if (length < 1) return false;
+        var head = Style switch
+        {
+            ArrowStyle.Open => Math.Min(length, Math.Max(12, Width * 4)),
+            ArrowStyle.TaperedSolid or ArrowStyle.TaperedOutline => Math.Min(length * .35f, Math.Max(16, Width * 5)),
+            _ => Math.Min(length / (Style == ArrowStyle.Double ? 2 : 1), Math.Max(14, Width * 5))
+        };
+        var halfWidth = Style is ArrowStyle.TaperedSolid or ArrowStyle.TaperedOutline
+            ? Math.Min(length * .14f, Math.Max(8, Width * 3))
+            : head * (Style == ArrowStyle.Open ? .5f : .42f);
+        bool ContainsHead(Point tip, Point tail)
+        {
+            var ux = (float)(tip.X - tail.X) / length;
+            var uy = (float)(tip.Y - tail.Y) / length;
+            var x = point.X - tip.X;
+            var y = point.Y - tip.Y;
+            var depth = -x * ux - y * uy;
+            return depth >= -tolerance && depth <= head + tolerance
+                && Math.Abs(-x * uy + y * ux) <= halfWidth * Math.Clamp(depth / head, 0, 1) + tolerance;
+        }
+        return ContainsHead(End, Start) || Style == ArrowStyle.Double && ContainsHead(Start, End);
+    }
+
     public override void Render(Graphics g, Bitmap screen)
     {
         var dx = (float)(End.X - Start.X);

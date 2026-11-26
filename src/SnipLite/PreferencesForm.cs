@@ -837,7 +837,7 @@ internal sealed partial class PreferencesForm : Form
         // Keep one menu per chooser. ContextMenuStrip is a shared-reference
         // property, so the button does not dispose it automatically. Release
         // it after the closing stack unwinds when its page is rebuilt.
-        var menu = SnipMenu.Create();
+        var menu = SnipMenu.Create(roundedPopup: true);
         var items = new ToolStripMenuItem[options.Length];
 
         button.ContextMenuStrip = menu;
@@ -861,10 +861,16 @@ internal sealed partial class PreferencesForm : Form
 
         menu.Opening += (_, _) =>
         {
-            for (var i = 0; i < options.Length; i++)
-                items[i].Checked = options[i] == button.Text;
-
             menu.MinimumSize = new Size(button.Width, 0);
+            var width = Math.Max(button.Width, menu.GetPreferredSize(Size.Empty).Width);
+            for (var i = 0; i < items.Length; i++)
+            {
+                items[i].Checked = options[i] == button.Text;
+                // The popup minimum width does not stretch WinForms' menu items.
+                var preferred = items[i].GetPreferredSize(Size.Empty);
+                items[i].AutoSize = false;
+                items[i].Size = new Size(width, preferred.Height);
+            }
         };
 
         button.Click += (_, _) => menu.Show(button, new Point(0, button.Height + Px(2)));

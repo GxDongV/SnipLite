@@ -3,17 +3,25 @@ using System.Text.Json.Serialization;
 namespace SnipLite;
 
 internal enum CaptureAction { Copy, Pin, QuickSave, None }
+internal enum AutoSaveRetentionMode { KeepAll, Count, Days }
 internal enum PointerGesture { None, LeftDoubleClick, MiddleClick, RightClick, LeftClick }
 internal sealed record MouseBinding(Keys Modifiers, PointerGesture Gesture);
 
 internal sealed partial class AppSettings
 {
+    internal const int MaxAutoSaveCount = 100000;
+    internal const int MaxAutoSaveDays = 3650;
+    public AutoSaveRetentionMode AutoSaveRetention { get; set; }
+    public int AutoSaveKeepCount { get; set; } = 20;
+    public int AutoSaveKeepDays { get; set; } = 30;
+
     public string DisplayLanguage { get; set; } = Localization.LanguageService.SystemDefault;
     public bool StartAsAdministrator { get; set; }
     public bool AutoBackup { get; set; } = true;
     public bool KeepResponsive { get; set; } = true;
     public bool EnhancedTrayMenu { get; set; } = true;
     public HashSet<string> HiddenToolbarButtons { get; set; } = new(StringComparer.Ordinal);
+    public string[] ToolbarButtonOrder { get; set; } = [];
     public string LogLevel { get; set; } = "Normal";
     public string InterfaceFont { get; set; } = "Microsoft YaHei UI";
     public float InterfaceFontSize { get; set; } = 9;
@@ -85,6 +93,7 @@ internal sealed partial class AppSettings
     public bool QuickSaveToast { get; set; } = true;
     public bool CaptureBitmapClipboard { get; set; } = true;
     public bool PinBitmapClipboard { get; set; }
+    public bool CopyImageAsFile { get; set; }
     public Keys CaptureHotkey { get; set; } = Keys.F1;
     public Keys CopyCaptureHotkey { get; set; } = Keys.None;
     public Keys CustomCaptureHotkey { get; set; } = Keys.None;
@@ -114,6 +123,7 @@ internal sealed partial class AppSettings
     private void NormalizePreferences()
     {
         HiddenToolbarButtons = new(HiddenToolbarButtons ?? [], StringComparer.Ordinal);
+        ToolbarButtonOrder = (ToolbarButtonOrder ?? []).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal).ToArray();
         DisplayLanguage = Localization.LanguageService.NormalizePreference(DisplayLanguage);
         if (!Enum.IsDefined(OcrEngine)) OcrEngine = OcrEngineKind.SimdPaddle;
         TranslationSourceLanguage = TranslationLanguages.Normalize(TranslationSourceLanguage, allowAuto: true, "en");
@@ -128,6 +138,9 @@ internal sealed partial class AppSettings
         ThumbnailWidth = Math.Clamp(ThumbnailWidth, 20, 1000);
         ThumbnailHeight = Math.Clamp(ThumbnailHeight, 20, 1000);
         HistoryImageLimit = Math.Clamp(HistoryImageLimit, 0, 100);
+        if (!Enum.IsDefined(AutoSaveRetention)) AutoSaveRetention = AutoSaveRetentionMode.KeepAll;
+        AutoSaveKeepCount = Math.Clamp(AutoSaveKeepCount, 1, MaxAutoSaveCount);
+        AutoSaveKeepDays = Math.Clamp(AutoSaveKeepDays, 1, MaxAutoSaveDays);
         if (string.IsNullOrWhiteSpace(QuickSaveDirectory)) QuickSaveDirectory = new AppSettings().QuickSaveDirectory;
         if (string.IsNullOrWhiteSpace(InterfaceFont)) InterfaceFont = "Microsoft YaHei UI";
         if (string.IsNullOrWhiteSpace(TextImageFont)) TextImageFont = "Microsoft YaHei UI";

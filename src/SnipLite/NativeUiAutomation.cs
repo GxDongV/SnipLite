@@ -10,7 +10,7 @@ internal static class NativeUiAutomation
     // Global, not per overlay: slow providers must not accumulate threads across F1/Esc.
     private static readonly SemaphoreSlim Slots = new(2, 2);
 
-    public static Rectangle Bounds(IntPtr handle, Point point, Rectangle window)
+    public static Rectangle Bounds(IntPtr handle, Point point, Rectangle window, ISet<Rectangle>? candidates = null)
     {
         // Capture queries use the MTA thread pool. A direct call from the UI thread
         // must never start a cross-process provider call that could block that UI.
@@ -57,9 +57,11 @@ internal static class NativeUiAutomation
                     var bounds = Rectangle.FromLTRB(rect.left, rect.top, rect.right, rect.bottom);
                     if (!bounds.Contains(point)) continue;
                     var candidate = Rectangle.Intersect(window, bounds);
-                    if (candidate.Width > 1 && candidate.Height > 1
-                        && (long)candidate.Width * candidate.Height <= (long)best.Width * best.Height)
-                        best = candidate;
+                    if (candidate.Width > 1 && candidate.Height > 1)
+                    {
+                        candidates?.Add(candidate);
+                        if ((long)candidate.Width * candidate.Height <= (long)best.Width * best.Height) best = candidate;
+                    }
                     // Descend at once, before enumerating unrelated siblings.
                     Walk(child, depth + 1);
                 }

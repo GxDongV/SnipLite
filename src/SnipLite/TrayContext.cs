@@ -11,6 +11,7 @@ internal sealed class TrayContext : ApplicationContext
     private readonly ThemeMonitor _themeMonitor = new();
     private readonly Localization.LanguageMonitor _languageMonitor;
     private readonly CaptureHistory _history = new();
+    private readonly System.Windows.Forms.Timer _autoSaveCleanupTimer = new() { Interval = 120_000 };
     private readonly PluginManager _plugins;
     private readonly PluginHostServices _pluginHost;
     private bool _exiting;
@@ -41,6 +42,8 @@ internal sealed class TrayContext : ApplicationContext
         ApplySettings();
         _languageMonitor = new Localization.LanguageMonitor(ApplySettings);
         _languageMonitor.Start();
+        _autoSaveCleanupTimer.Tick += CleanAutoSavesAfterStartup;
+        _autoSaveCleanupTimer.Start();
         void Once(Action action)
         {
             var timer = new System.Windows.Forms.Timer { Interval = 250 };
@@ -231,7 +234,11 @@ internal sealed class TrayContext : ApplicationContext
             _history.Add(result.Image, result.Bounds, _settings.HistoryImageLimit);
             var copiesToClipboard = forceCopy || result.Action == CaptureAction.Copy ||
                 result.Action == CaptureAction.None && _settings.CopyAfterCapture;
-            if (_settings.AutoSave) Services.SaveCaptureFile(result.Image, _settings, _settings.SaveDirectory, playSound: !copiesToClipboard);
+            if (_settings.AutoSave)
+            {
+                var path = Services.SaveCaptureFile(result.Image, _settings, _settings.SaveDirectory, playSound: !copiesToClipboard);
+                AutoSavedCaptures.Record(path);
+            }
             if (result.Pin || result.Action == CaptureAction.Pin)
             { PinImage(result.Image, result.Bounds); transferred = true; }
             else if (result.Action == CaptureAction.QuickSave)
@@ -302,6 +309,7 @@ internal sealed class TrayContext : ApplicationContext
     {
         if (_exiting) return;
         _exiting = true;
+        _autoSaveCleanupTimer.Dispose();
         _plugins.Cancel();
         await _plugins.WhenIdle;
         _plugins.Changed -= PluginsChanged;
@@ -311,6 +319,16 @@ internal sealed class TrayContext : ApplicationContext
         _languageMonitor.Dispose();
         _tray.Visible = false; var icon = _tray.Icon; _tray.Dispose(); icon?.Dispose();
         _overlay?.Close(); _prefs?.Close(); _hotkeys.Dispose(); PinForm.CloseAllForExit(); ExitThread();
+    }
+
+    private void CleanAutoSavesAfterStartup(object? sender, EventArgs e)
+    {
+        _autoSaveCleanupTimer.Stop();
+        var mode = _settings.AutoSaveRetention;
+        if (!_settings.AutoSave || mode == AutoSaveRetentionMode.KeepAll) return;
+        var folder = _settings.SaveDirectory;
+        var limit = mode == AutoSaveRetentionMode.Count ? _settings.AutoSaveKeepCount : _settings.AutoSaveKeepDays;
+        _ = Task.Run(() => AutoSavedCaptures.Clean(folder, mode, limit, DateTime.UtcNow));
     }
     private void RefreshTheme()
     {

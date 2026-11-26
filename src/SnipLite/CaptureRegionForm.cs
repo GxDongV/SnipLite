@@ -3,26 +3,45 @@ namespace SnipLite;
 internal sealed class CaptureRegionForm : Form
 {
     private readonly NumericUpDown[] _numbers;
-    public Rectangle RegionBounds => new((int)_numbers[0].Value, (int)_numbers[1].Value, (int)_numbers[2].Value, (int)_numbers[3].Value);
-    public CaptureRegionForm(AppSettings settings)
+    public Size RegionSize => new((int)_numbers[^2].Value, (int)_numbers[^1].Value);
+    public Rectangle RegionBounds => new(_numbers.Length == 4
+        ? new Point((int)_numbers[0].Value, (int)_numbers[1].Value) : Point.Empty, RegionSize);
+
+    internal static Size DefaultRegionSize(Size screen) => new(Math.Min(800, screen.Width), Math.Min(500, screen.Height));
+
+    public CaptureRegionForm(AppSettings settings, Size? initialSize = null, Size? maximumSize = null)
     {
+        var sizeOnly = initialSize.HasValue;
         Text = UiText.T("自定义截屏区域"); Font = settings.CreateInterfaceFont();
         AutoScaleMode = AutoScaleMode.Dpi; AutoScaleDimensions = new SizeF(96, 96);
-        ClientSize = new Size(330, 220); FormBorderStyle = FormBorderStyle.FixedDialog;
-        StartPosition = FormStartPosition.CenterScreen; ShowInTaskbar = false; MinimizeBox = MaximizeBox = false;
+        ClientSize = new Size(330, sizeOnly ? 150 : 220); FormBorderStyle = FormBorderStyle.FixedDialog;
+        StartPosition = sizeOnly ? FormStartPosition.CenterParent : FormStartPosition.CenterScreen;
+        ShowInTaskbar = false; MinimizeBox = MaximizeBox = false;
         var screen = SystemInformation.VirtualScreen;
-        var initial = new Rectangle(screen.X, screen.Y, Math.Min(800, screen.Width), Math.Min(500, screen.Height));
-        var labels = new[] { "X", "Y", UiText.T("宽度"), UiText.T("高度") }; var values = new[] { initial.X, initial.Y, initial.Width, initial.Height };
-        _numbers = new NumericUpDown[4];
-        for (var i = 0; i < 4; i++)
+        var size = initialSize ?? DefaultRegionSize(screen.Size);
+        var limit = maximumSize ?? new Size(100000, 100000);
+        var labels = new[] { "X", "Y", UiText.T("宽度"), UiText.T("高度") };
+        var values = new[] { screen.X, screen.Y, size.Width, size.Height };
+        var maximums = new[] { 100000, 100000, limit.Width, limit.Height };
+        var first = sizeOnly ? 2 : 0;
+        _numbers = new NumericUpDown[4 - first];
+        for (var i = first; i < 4; i++)
         {
-            Controls.Add(new Label { Text = labels[i], Bounds = new Rectangle(24, 22 + i * 35, 70, 28) });
-            var number = new NumericUpDown { Minimum = i < 2 ? -100000 : 1, Maximum = 100000, Value = values[i], Bounds = new Rectangle(110, 20 + i * 35, 180, 28) };
-            Controls.Add(number); _numbers[i] = number;
+            var y = 20 + (i - first) * 35;
+            Controls.Add(new Label { Text = labels[i], Bounds = new Rectangle(24, y + 2, 70, 28) });
+            var minimum = i < 2 ? -100000 : 1;
+            var number = new NumericUpDown
+            {
+                AccessibleName = labels[i], Minimum = minimum, Maximum = maximums[i],
+                Value = Math.Clamp(values[i], minimum, maximums[i]), Bounds = new Rectangle(110, y, 180, 28)
+            };
+            Controls.Add(number); _numbers[i - first] = number;
         }
-        var ok = new Button { Text = UiText.T("开始截图"), DialogResult = DialogResult.OK, Bounds = new Rectangle(110, 170, 95, 30) };
-        var cancel = new Button { Text = UiText.T("取消"), DialogResult = DialogResult.Cancel, Bounds = new Rectangle(215, 170, 75, 30) };
+        var buttonsY = ClientSize.Height - 50;
+        var ok = new Button { Text = UiText.T(sizeOnly ? "确认" : "开始截图"), DialogResult = DialogResult.OK, Bounds = new Rectangle(110, buttonsY, 95, 30) };
+        var cancel = new Button { Text = UiText.T("取消"), DialogResult = DialogResult.Cancel, Bounds = new Rectangle(215, buttonsY, 75, 30) };
         Controls.AddRange(new Control[] { ok, cancel }); AcceptButton = ok; CancelButton = cancel;
+        ActiveControl = _numbers[0];
         Icon = AppIcon.Window;
         AppTheme.Apply(this);
         AppTheme.Changed += ApplyTheme;

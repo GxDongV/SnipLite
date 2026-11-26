@@ -18,6 +18,7 @@ internal sealed class AnnotationBar
         ("close", "取消"), ("pin", "贴图"), ("save", "保存"), ("copy", "复制")
     };
     public IReadOnlySet<string> HiddenButtons { get; set; } = new HashSet<string>();
+    public IReadOnlyList<string> ButtonOrder { get; set; } = [];
     public IReadOnlyList<(string Id, string Title, Image? Icon)> PluginButtons { get; set; } = Array.Empty<(string, string, Image?)>();
     /// <summary>Snipaste's palette: 11 columns x 2 rows, saturated then pastel.</summary>
     public static readonly Color[] Palette =
@@ -129,12 +130,34 @@ internal sealed class AnnotationBar
     public Rectangle MessageBounds => _message;
 
     public bool Visible => _items.Count > 0 || _message.Height > 0;
+    internal IReadOnlyList<(Rectangle Rect, string Id)> Items => _items;
 
     private int Px(int value) => (int)Math.Round(value * Scale);
 
     private bool ShowsFill => Tool is ToolKind.Rectangle or ToolKind.Ellipse;
 
     private bool ShowsTextStyle => Tool == ToolKind.Text;
+
+    internal IEnumerable<string> OrderedButtons(bool includeUnavailable = false)
+    {
+        var defaults = BuiltInButtons.TakeWhile(button => button.Id != "close").Select(button => button.Id)
+            .Concat(PluginButtons.Select(button => button.Id))
+            .Concat(BuiltInButtons.SkipWhile(button => button.Id != "close").Select(button => button.Id));
+        if (ButtonOrder.Count == 0) return defaults;
+        var ordered = ButtonOrder.Concat(defaults).Distinct(StringComparer.Ordinal);
+        if (includeUnavailable) return ordered;
+        var available = defaults.ToHashSet(StringComparer.Ordinal);
+        return ordered.Where(available.Contains);
+    }
+
+    private static int ButtonGroup(string id) => id switch
+    {
+        "rect" or "ellipse" or "arrow" or "pen" or "marker" or "mosaic" or "text" or "eraser" => 0,
+        "undo" or "redo" => 1,
+        "ocr" or "translate" or "qr" => 2,
+        "close" or "pin" or "save" or "copy" => 4,
+        _ => 3
+    };
 
     public void Clear()
     {
@@ -169,30 +192,22 @@ internal sealed class AnnotationBar
         void Add(int left, int top, int width, int height, string id)
             => _items.Add((new Rectangle(left, top, width, height), id));
 
-        void Cell(string id)
+        var previousGroup = -1;
+        foreach (var id in OrderedButtons())
         {
-            if (HiddenButtons.Contains(id)) return;
-            if (x + button + pad > screen.Width - Px(4)) { x = pad; y += button + gap; }
-            Add(x, y, button, button, id);
-            x += button + gap;
-        }
-
-        void AddGroup(params string[] ids)
-        {
-            if (!ids.Any(id => !HiddenButtons.Contains(id))) return;
-            if (_items.Count > 0 && x + group * 2 + button + pad <= screen.Width - Px(4))
+            if (HiddenButtons.Contains(id)) continue;
+            var currentGroup = ButtonGroup(id);
+            if (previousGroup >= 0 && previousGroup != currentGroup && x + group * 2 + button + pad <= screen.Width - Px(4))
             {
                 x += group - gap;
                 _dividers.Add(new Rectangle(x, y + pad, 1, button - pad * 2));
                 x += group;
             }
-            foreach (var id in ids) Cell(id);
+            if (x + button + pad > screen.Width - Px(4)) { x = pad; y += button + gap; }
+            Add(x, y, button, button, id);
+            x += button + gap;
+            previousGroup = currentGroup;
         }
-        AddGroup("rect", "ellipse", "arrow", "pen", "marker", "mosaic", "text", "eraser");
-        AddGroup("undo", "redo");
-        AddGroup("ocr", "translate", "qr");
-        AddGroup(PluginButtons.Select(p => p.Id).ToArray());
-        AddGroup("close", "pin", "save", "copy");
 
         var mainWidth = Math.Max(Px(240), _items.Select(i => i.Rect.Right + pad).DefaultIfEmpty(0).Max());
         var mainHeight = _items.Count == 0 ? 0 : y + button + pad;

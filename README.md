@@ -78,6 +78,12 @@ SnipLite bundles Scroll Capture 0.1.15 in all three packages and enables it by d
 | `Ctrl+S` / `Ctrl+T` | Save as / pin selection |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
 
+### Select parent and child elements
+
+Press `F1` and hover over an icon or control before making a selection. Scroll up to move to a parent element or down to move to a child under the pointer. Each notch moves one level. Click the highlighted area to select it. Hold `Alt` while scrolling to adjust the magnifier zoom.
+
+In **Preferences → Capture**, enable **Detect UI elements** under **Behavior** and leave **Disable capture wheel** off under **Keys**.
+
 ## OCR, translation and pinning
 
 Click **OCR** after selecting a region. Drag over the recognized text, use `Ctrl+A` to select all, then `Ctrl+C` to copy. Recognition status appears below the toolbar; `Esc` returns to annotation without discarding the capture.
