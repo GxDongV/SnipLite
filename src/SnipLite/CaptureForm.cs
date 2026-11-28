@@ -88,6 +88,7 @@ internal sealed partial class CaptureForm : Form
     private Point? _lastAutomationPoint;
     private long _lastAutomationResolvedAt;
     private readonly Rectangle? _preset;
+    private readonly Win32.CursorSnapshot? _outputCursor;
     private CaptureKeyboardHook? _keyboardHook;
     private readonly List<ContextMenuStrip> _optionMenus = new();
     private CaptureCrosshair? _crosshair;
@@ -135,10 +136,14 @@ internal sealed partial class CaptureForm : Form
 
     public event Action<CaptureResult?>? Done;
     public event Action<string, Rectangle>? PluginRequested;
+    internal event Func<string, Task>? ScreenshotPluginRequested;
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    internal IReadOnlySet<string> ScreenshotPluginIds { get; init; } = new HashSet<string>();
+    internal Func<bool>? IsCompanionWindowActive;
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public IReadOnlyList<(string Id, string Title, Image? Icon)> PluginButtons { get; set; } = Array.Empty<(string, string, Image?)>();
 
-    public CaptureForm(Rectangle virtualScreen, CaptureMode mode, AppSettings settings, Rectangle? preset = null)
+    public CaptureForm(Rectangle virtualScreen, CaptureMode mode, AppSettings settings, Rectangle? preset = null, bool showFrozenCursor = true)
     {
         _virtual = virtualScreen;
         _initialSizeViewport = LocalTarget(Screen.FromPoint(Win32.CursorPosition()).Bounds);
@@ -158,7 +163,11 @@ internal sealed partial class CaptureForm : Form
         using (var g = Graphics.FromImage(_screenshot))
         {
             g.CopyFromScreen(_virtual.Location, Point.Empty, _virtual.Size, CopyPixelOperation.SourceCopy);
-            if (settings.CaptureCursor && !settings.DisableCursorCapture) Win32.DrawCursor(g, _virtual.Location);
+            if (settings.CaptureCursor && !settings.DisableCursorCapture)
+            {
+                if (showFrozenCursor) Win32.DrawCursor(g, _virtual.Location);
+                else _outputCursor = Win32.CaptureCursor();
+            }
         }
 
         FormBorderStyle = FormBorderStyle.None;
@@ -200,7 +209,6 @@ internal sealed partial class CaptureForm : Form
 
     protected override void OnShown(EventArgs e)
     {
-        base.OnShown(e);
         Localization.LanguageService.Changed += RefreshInterfaceLanguage;
 
         Win32.SetWindowPos(Handle, Win32.HWND_TOPMOST,
@@ -225,6 +233,7 @@ internal sealed partial class CaptureForm : Form
         if (!_hasSelection) UpdateTarget();
         if (_targets is not null) _targetTimer.Start();
         Invalidate();
+        base.OnShown(e);
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
@@ -261,6 +270,11 @@ internal sealed partial class CaptureForm : Form
         _textFont?.Dispose();
         _textFont = null;
 
+        _recordingLive = false;
+        _liveEditorTimer?.Dispose();
+        _liveEditorTimer = null;
+        ReleaseLiveSource();
+        _outputCursor?.Dispose();
         _screenshot.Dispose();
         _annotationLayer?.Dispose();
         _badgeFont.Dispose();
@@ -273,13 +287,14 @@ internal sealed partial class CaptureForm : Form
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
-        g.DrawImageUnscaled(_screenshot, 0, 0);
+        if (_recordingLive) DrawPluginFrame(g, e.ClipRectangle);
+        else g.DrawImageUnscaled(_screenshot, 0, 0);
 
         // While the rubber band is being dragged _hasSelection is still false,
         // so use the geometry itself to decide what to paint.
         var region = _selection.Width > 0 && _selection.Height > 0;
 
-        using (var dim = new SolidBrush(Color.FromArgb(Math.Clamp(_settings.MaskOpacity, 0, 200), Color.FromArgb(_settings.CaptureMaskColor))))
+        if (!_recordingLive) using (var dim = new SolidBrush(Color.FromArgb(Math.Clamp(_settings.MaskOpacity, 0, 200), Color.FromArgb(_settings.CaptureMaskColor))))
         {
             if (region || !_hoverTarget.IsEmpty && !_dragging)
             {
@@ -300,11 +315,13 @@ internal sealed partial class CaptureForm : Form
         if (region)
         {
             var state = g.Save();
-            g.SetClip(_selection);
+            g.SetClip(_selection, CombineMode.Intersect);
 
             DrawTranslationOverlay(g, Point.Empty);
             if (_shapes.Count > 0 || _current is not null)
-                g.DrawImageUnscaled(GetAnnotationLayer(Crop), Crop.Location);
+                DrawCaptureAnnotations(g, Crop, Crop.Location);
+            else if (_recordingLive)
+                lock (_liveGate) _liveHasAnnotations = false;
             DrawTextPreview(g);
             if (_activeText is not null && !_ocrMode)
             {
@@ -321,23 +338,24 @@ internal sealed partial class CaptureForm : Form
 
             g.Restore(state);
 
-            DrawSelection(g, _settings.CaptureAnchors && _hasSelection && !_ocrMode && !_recognitionBusy);
+            DrawSelection(g, !_recordingLive && _settings.CaptureAnchors && _hasSelection && !_ocrMode && !_recognitionBusy);
             DrawAnnotationSelection(g);
 
-            if (_hasSelection)
+            if (_hasSelection && (!_recordingLive || !_selection.Contains(e.ClipRectangle) || _bar.Bounds.IntersectsWith(e.ClipRectangle)))
             {
                 _bar.CanUndo = _undo.Count > 0;
                 _bar.CanRedo = _redo.Count > 0;
-                _bar.AttachedPanelHeight = TranslationVisible ? _translationPanel!.Height : 0;
+                _bar.AttachedPanelHeight = _pluginPanel is { IsDisposed: false } panel ? panel.Height : TranslationVisible ? _translationPanel!.Height : 0;
                 _bar.HiddenButtons = _settings.HiddenToolbarButtons;
                 _bar.ButtonOrder = _settings.ToolbarButtonOrder;
                 _bar.PluginButtons = PluginButtons;
                 _bar.Layout(_selection, _virtual.Size);
                 LayoutTranslationPanel();
+                PositionPluginPanel();
                 _barVisible = _bar.Visible;
                 if (_barVisible) _bar.Render(g);
             }
-            else
+            else if (!_hasSelection)
             {
                 _barVisible = false;
             }
@@ -594,7 +612,7 @@ internal sealed partial class CaptureForm : Form
         var p = Clamp(e.Location);
         _cursor = p;
 
-        if (SelectionSizeHit(p))
+        if (_pluginPanel is null && SelectionSizeHit(p))
         {
             _sizeBadgePressed = true;
             Capture = true;
@@ -704,6 +722,7 @@ internal sealed partial class CaptureForm : Form
                 return;
             }
 
+            if (_pluginPanel is not null) return;
             var index = HitAnchor(p);
             if (index >= 0)
             {
@@ -724,6 +743,7 @@ internal sealed partial class CaptureForm : Form
             }
         }
 
+        if (_pluginPanel is not null) return;
         _anchor = p;
         ClearQrResult();
         // Mouse-down can arrive before the next move/timer message. Resolve the
@@ -807,7 +827,7 @@ internal sealed partial class CaptureForm : Form
         {
             _current.DragTo(AnnotationDragPoint(_cursor, (ModifierKeys & Keys.Shift) != 0));
             _annotationDirty = true;
-            Repaint();
+            if (_recordingLive) Invalidate(_selection); else Repaint();
         }
         else if (_dragging)
         {
@@ -971,7 +991,7 @@ internal sealed partial class CaptureForm : Form
     {
         try
         {
-            if (_finished || IsDisposed) return;
+            if (_pluginPanel is not null || _finished || IsDisposed) return;
             _toolTip.Hide(this);
             var size = _hasSelection ? _selection.Size : CaptureRegionForm.DefaultRegionSize(_initialSizeViewport.Size);
             using var dialog = new CaptureRegionForm(_settings, size, _virtual.Size) { TopMost = TopMost };
@@ -1160,6 +1180,7 @@ internal sealed partial class CaptureForm : Form
 
         if (keyData == (Keys.Control | Keys.A))
         {
+            if (_pluginPanel is not null) return true;
             ClearQrResult();
             _selection = new Rectangle(0, 0, _virtual.Width, _virtual.Height);
             _hasSelection = true;
@@ -1255,11 +1276,21 @@ internal sealed partial class CaptureForm : Form
         Invalidate();
     }
 
-    private void Command(string id)
+    private async void Command(string id)
     {
+        if (ScreenshotPluginIds.Contains(id) && ScreenshotPluginRequested is { } docked)
+        {
+            if (_dockedCommandActive) return;
+            _dockedCommandActive = true;
+            try { await docked(id); }
+            catch (Exception error) { if (!IsDisposed) Program.Report(error); }
+            finally { _dockedCommandActive = false; }
+            return;
+        }
         if (PluginButtons.Any(p => p.Id == id))
         {
             var bounds = new Rectangle(_selection.X + _virtual.X, _selection.Y + _virtual.Y, _selection.Width, _selection.Height);
+            if (_dockedCommandActive) return;
             Cancel();
             PluginRequested?.Invoke(id, bounds);
             return;
@@ -1388,8 +1419,8 @@ internal sealed partial class CaptureForm : Form
         }
         if (_annotationDirty)
         {
-            AnnotationRenderer.RenderLayer(_annotationLayer, crop, _screenshot,
-                _shapes.Where(shape => !ReferenceEquals(shape, _editingText)), _current);
+            AnnotationRenderer.RenderLayer(_annotationLayer, crop, _liveSource ?? _screenshot,
+                _shapes.Where(shape => !ReferenceEquals(shape, _editingText)), _current, _liveSource is null ? Point.Empty : crop.Location);
             _annotationDirty = false;
         }
         return _annotationLayer;
@@ -1572,10 +1603,11 @@ internal sealed partial class CaptureForm : Form
     {
         _crosshair?.Hide();
         base.OnDeactivate(e);
-        if (!_settings.ExitCaptureOnDeactivate || _finished || _sizeEditorOpen) return;
+        if (_dockedCommandActive || !_settings.ExitCaptureOnDeactivate || _finished || _sizeEditorOpen) return;
         BeginInvoke(() =>
         {
-            if (!IsDisposed && !_sizeEditorOpen && !ContainsFocus && !OwnedForms.Any(form => form.Visible) && !_optionMenus.Any(menu => menu.Visible)) Cancel();
+            if (!IsDisposed && !_sizeEditorOpen && !ContainsFocus && !OwnedForms.Any(form => form.Visible) &&
+                !_optionMenus.Any(menu => menu.Visible) && IsCompanionWindowActive?.Invoke() != true) Cancel();
         });
     }
     private void ExecuteAction(CaptureAction action, bool exit)
@@ -1903,10 +1935,12 @@ internal sealed partial class CaptureForm : Form
         using var g = Graphics.FromImage(image);
         g.InterpolationMode = InterpolationMode.NearestNeighbor;
         g.PixelOffsetMode = PixelOffsetMode.Half;
-        g.DrawImage(_screenshot, new Rectangle(0, 0, crop.Width, crop.Height), crop, GraphicsUnit.Pixel);
+        if (!_recordingLive || !DrawLiveSource(g, Point.Empty))
+            g.DrawImage(_screenshot, new Rectangle(0, 0, crop.Width, crop.Height), crop, GraphicsUnit.Pixel);
+        _outputCursor?.Draw(g, new Point(_virtual.X + crop.X, _virtual.Y + crop.Y));
         DrawTranslationOverlay(g, new Point(-crop.X, -crop.Y));
 
-        if (_shapes.Count > 0) g.DrawImageUnscaled(GetAnnotationLayer(crop), 0, 0);
+        if (_shapes.Count > 0) DrawCaptureAnnotations(g, crop, Point.Empty);
 
         return image;
     }
@@ -2012,13 +2046,14 @@ internal sealed partial class CaptureForm : Form
 
     private void Finish(CaptureResult result)
     {
+        if (!result.KeepOpen && CloseRecordingPanel(() => Finish(result))) return;
         if (!result.KeepOpen) { _finished = true; Close(); }
         Done?.Invoke(result);
     }
 
     private void Cancel()
     {
-        if (_finished) return;
+        if (_finished || CloseRecordingPanel(Cancel)) return;
 
         CommitText();
         _finished = true;

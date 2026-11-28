@@ -144,10 +144,16 @@ internal sealed class AnnotationBar
             .Concat(PluginButtons.Select(button => button.Id))
             .Concat(BuiltInButtons.SkipWhile(button => button.Id != "close").Select(button => button.Id));
         if (ButtonOrder.Count == 0) return defaults;
-        var ordered = ButtonOrder.Concat(defaults).Distinct(StringComparer.Ordinal);
-        if (includeUnavailable) return ordered;
         var available = defaults.ToHashSet(StringComparer.Ordinal);
-        return ordered.Where(available.Contains);
+        var order = ButtonOrder.Concat(defaults.Where(id => !id.Contains('/')))
+            .Distinct(StringComparer.Ordinal).Where(id => includeUnavailable || available.Contains(id)).ToList();
+        var missingPlugins = PluginButtons.Select(button => button.Id).Except(order, StringComparer.Ordinal).ToArray();
+        if (missingPlugins.Length == 0) return order;
+
+        var insertion = order.FindLastIndex(id => id.Contains('/'));
+        if (insertion < 0) insertion = order.FindLastIndex(id => ButtonGroup(id) < 3);
+        order.InsertRange(insertion + 1, missingPlugins);
+        return order;
     }
 
     private static int ButtonGroup(string id) => id switch

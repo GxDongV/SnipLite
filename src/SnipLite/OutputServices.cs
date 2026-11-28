@@ -104,13 +104,18 @@ internal static partial class Services
         return new[] { ".png", ".jpg", ".jpeg" }.Contains(Path.GetExtension(stem).ToLowerInvariant())
             ? Path.ChangeExtension(stem, extension) : stem + extension;
     }
+    private static readonly object CaptureSaveLock = new();
+
     public static string SaveCaptureFile(Bitmap image, AppSettings settings, string folder, string extension = ".png", bool playSound = true)
     {
         Directory.CreateDirectory(folder);
         var filename = ImageFileName(settings, extension);
         var path = Path.Combine(folder, filename);
-        for (var i = 2; File.Exists(path); i++) path = Path.Combine(folder, $"{Path.GetFileNameWithoutExtension(filename)} ({i}){extension}");
-        SaveImage(image, path, extension is ".jpg" or ".jpeg", settings.JpegQuality);
+        lock (CaptureSaveLock)
+        {
+            for (var i = 2; File.Exists(path); i++) path = Path.Combine(folder, $"{Path.GetFileNameWithoutExtension(filename)} ({i}){extension}");
+            SaveImage(image, path, extension is ".jpg" or ".jpeg", settings.JpegQuality);
+        }
         if (playSound && settings.SoundOnSave) _ = PlaySoundAsync(settings.CaptureSound);
         return path;
     }

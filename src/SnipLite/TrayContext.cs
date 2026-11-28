@@ -194,27 +194,34 @@ internal sealed class TrayContext : ApplicationContext
     }
     private void StartCapture(CaptureMode mode, bool forceCopy = false, Rectangle? preset = null)
     {
-        if (_plugins.IsRunning || _exiting)
+        if (_plugins.BlocksScreenshots || _exiting)
         {
             AppLog.Write($"Capture skipped: mode={mode} pluginRunning={_plugins.IsRunning} exiting={_exiting}", debug: true);
             return;
         }
-        if (_overlay is { IsDisposed: false, Visible: true }) { _overlay.Activate(); return; }
+        if (_overlay is { IsDisposed: false, Visible: true })
+        {
+            _overlay.Activate();
+            _pluginHost.RaiseScreenshotOverlays();
+            return;
+        }
         _overlay?.Dispose();
         try
         {
-            var overlay = new CaptureForm(SystemInformation.VirtualScreen, mode, _settings, preset)
+            IReadOnlyList<RegisteredPluginCommand> commands = _plugins.IsRunning ? [] : _plugins.Commands;
+            var overlay = new CaptureForm(SystemInformation.VirtualScreen, mode, _settings, preset, showFrozenCursor: !_plugins.IsRunning)
             {
-                PluginButtons = _plugins.Commands.Select(c => (c.Id, c.Title.Get(_pluginHost.Language), c.Icon)).ToArray()
+                PluginButtons = commands.Select(c => (c.Id, c.Title.Get(_pluginHost.Language), c.Icon)).ToArray(),
+                ScreenshotPluginIds = commands.Where(c => c.ExecuteInScreenshot is not null).Select(c => c.Id).ToHashSet()
             }; _overlay = overlay;
+            overlay.ScreenshotPluginRequested += async id =>
+            {
+                if (_exiting || _plugins.IsRunning) return;
+                await _plugins.ExecuteFromScreenshotAsync(overlay, id);
+            };
             overlay.PluginRequested += async (id, bounds) =>
             {
-                // Remove the frozen overlay before the plugin reads the live target window.
-                await Task.Delay(180);
-                if (_exiting) return;
-                _pluginHost.PendingSelection = bounds;
-                try { await _plugins.ExecuteAsync(id); }
-                finally { _pluginHost.PendingSelection = null; }
+                if (!_exiting) await _plugins.ExecuteFromSelectionAsync(id, bounds, _pluginHost);
             };
             overlay.Done += result =>
             {
@@ -222,7 +229,7 @@ internal sealed class TrayContext : ApplicationContext
                 if (result is not null) HandleResult(result, forceCopy);
             };
             overlay.FormClosed += (_, _) => { if (ReferenceEquals(_overlay, overlay)) _overlay = null; };
-            overlay.Show();
+            _pluginHost.ShowScreenshot(overlay);
         }
         catch (Exception ex) { _overlay?.Dispose(); _overlay = null; Program.Report(ex); }
     }

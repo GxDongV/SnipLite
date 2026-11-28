@@ -27,6 +27,7 @@ Preferences in English, rendered from the current application in light mode.
 ## Features
 
 - **Scrolling screenshots:** press F1, select the content, and choose the scrolling screenshot icon. The bundled plugin scrolls and stitches the capture, then opens a preview for cropping, saving, copying, or pinning.
+- **Screen recording:** install Screen Recorder from **Preferences → Plugins → Discover plugins**, then select a region with F1 and choose Record from the screenshot toolbar. Export MP4, GIF, APNG, or animated WebP.
 - **Local OCR:** recognize everyday Chinese / English text offline and select words directly on the capture to copy them.
 - **QR codes and barcodes:** results appear below the toolbar, with a copy button.
 - **Screenshot translation:** overlay translated text on the original regions. Switch the provider and language pair, swap languages, retry, or toggle the original without leaving the capture.
@@ -60,6 +61,7 @@ SnipLite bundles Scroll Capture 0.1.15 in all three packages and enables it by d
 | Category | Plugin | Version | Requires SnipLite | Download |
 | --- | --- | --- | --- | --- |
 | Capture | [Scroll Capture](https://github.com/GxDongV/SnipLite-Plugin-Catalog/tree/main/plugins/capture/scroll-capture) | 0.1.15 | 0.3.16 or later | [`.snipplugin`](https://github.com/GxDongV/SnipLite-Plugin-Catalog/releases/download/scroll-capture-v0.1.15/sniplite.scroll-capture-0.1.15.snipplugin) |
+| Capture | [Screen Recorder](https://github.com/GxDongV/SnipLite-ScreenRecorder) | 0.5.12 | 0.3.31 or later (x64) | [`.snipplugin`](https://github.com/GxDongV/SnipLite-ScreenRecorder/releases/download/v0.5.12/sniplite.screen-recorder-0.5.12-win-x64.snipplugin) |
 
 [Official plugin catalog](https://github.com/GxDongV/SnipLite-Plugin-Catalog) · [Plugin integration specification (Simplified Chinese)](docs/PLUGIN_DEVELOPMENT.zh-CN.md)
 

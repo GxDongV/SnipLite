@@ -61,6 +61,8 @@ example.watermark.snipplugin
 
 F1 选区中启动插件时，宿主把该物理选区交给插件的下一次 `Host.SelectRegionAsync`。插件可以用 `Host.StyleWindow` 让自己的 WinForms 窗口跟随宿主主题。命令名使用 `PluginText` 提供英文、简体和可选繁体，其他语言使用英文。插件数据写入 `context.DataDirectory`，按需创建目录。
 
+需要让用户在命令运行期间继续截图时，可为非模态命令设置 `AllowScreenshotsWhileRunning`。调用 `Host.KeepVisibleDuringScreenshot(form)` 可让指定窗体在打开或重新激活截图编辑器时保持可见，截图编辑器保留焦点。同一插件有多个独立窗体时，请按从下到上的顺序登记。与已登记窗体及其子对话框交互时，截图编辑器保持打开。窗体释放后自动取消登记。插件负责自己的窗体定位和采集行为。
+
 ## 4. 生命周期与图像所有权
 
 - 交互命令和提供器在 UI 线程开始。CPU 密集计算可交给后台线程。屏幕捕获 `Host.CaptureRegion` 在 UI 线程调用，返回调用方负责释放的位图。
@@ -86,6 +88,8 @@ API v1 的现有接口保持兼容。新增能力应使用可选接口，破坏�
 ## 6. 独立发布与目录收录
 
 长截图从 [独立插件仓库](https://github.com/GxDongV/SnipLite-ScrollCapture) 发布。其 Release 同时提供插件包和开发用的 `SnipLite.Plugin.Abstractions.1.0.0.nupkg`。独立开发者把 SDK 包加入本地 NuGet 源，并使用带 `ExcludeAssets="runtime"` 的 `PackageReference` 编译。运行时 SDK 仍由宿主提供。
+
+屏幕录制在独立仓库维护，可从其 Releases 下载，也可在 SnipLite 里通过「发现插件」安装。其版本清单声明录制界面所需的最低宿主版本。[屏幕录制源码和构建说明](https://github.com/GxDongV/SnipLite-ScreenRecorder)
 
 将版本化的 `.snipplugin` 上传到 GitHub Releases。可在自己的插件仓库发布，也可由维护者发布到 [官方插件目录](https://github.com/GxDongV/SnipLite-Plugin-Catalog)。计算已发布文件的 SHA-256，再更新官方目录。目录中的插件 ID、版本、API 版本、最低宿主版本和架构应与包内清单一致。客户端在「首选项 → 插件 → 发现插件」读取目录，下载后先校验摘要，再校对清单并安装。
 
