@@ -84,7 +84,7 @@ internal static class AppTheme
             Button => p.Field,
             Label => Color.Transparent,
             _ when control.Parent is FluentInputFrame => p.Field,
-            _ when control.Parent is FluentSettingRow => p.Card,
+            _ when control.Parent is FluentSettingRow or TableLayoutPanel { Parent: FluentSettingRow } => p.Card,
             _ => p.Window
         };
         if (control is LinkLabel link) link.LinkColor = link.ActiveLinkColor = link.VisitedLinkColor = p.Accent;

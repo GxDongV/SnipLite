@@ -63,13 +63,16 @@ internal sealed class CaptureCrosshair : IDisposable
     }
     private void Position(Point local)
     {
+        // The lines are owned by the editor. Moving them must preserve the
+        // editor's position relative to other topmost windows.
+        const uint flags = Win32.SWP_NOACTIVATE | Win32.SWP_NOZORDER;
         var batch = BeginDeferWindowPos(2);
-        if (batch != IntPtr.Zero) batch = DeferWindowPos(batch, _horizontal.Handle, Win32.HWND_TOPMOST, _screen.X, _screen.Y + local.Y, _screen.Width, 1, Win32.SWP_NOACTIVATE);
-        if (batch != IntPtr.Zero) batch = DeferWindowPos(batch, _vertical.Handle, Win32.HWND_TOPMOST, _screen.X + local.X, _screen.Y, 1, _screen.Height, Win32.SWP_NOACTIVATE);
+        if (batch != IntPtr.Zero) batch = DeferWindowPos(batch, _horizontal.Handle, IntPtr.Zero, _screen.X, _screen.Y + local.Y, _screen.Width, 1, flags);
+        if (batch != IntPtr.Zero) batch = DeferWindowPos(batch, _vertical.Handle, IntPtr.Zero, _screen.X + local.X, _screen.Y, 1, _screen.Height, flags);
         if (batch == IntPtr.Zero || !EndDeferWindowPos(batch))
         {
-            Win32.SetWindowPos(_horizontal.Handle, Win32.HWND_TOPMOST, _screen.X, _screen.Y + local.Y, _screen.Width, 1, Win32.SWP_NOACTIVATE);
-            Win32.SetWindowPos(_vertical.Handle, Win32.HWND_TOPMOST, _screen.X + local.X, _screen.Y, 1, _screen.Height, Win32.SWP_NOACTIVATE);
+            Win32.SetWindowPos(_horizontal.Handle, IntPtr.Zero, _screen.X, _screen.Y + local.Y, _screen.Width, 1, flags);
+            Win32.SetWindowPos(_vertical.Handle, IntPtr.Zero, _screen.X + local.X, _screen.Y, 1, _screen.Height, flags);
         }
     }
     public void Hide() { _horizontal.Hide(); _vertical.Hide(); }

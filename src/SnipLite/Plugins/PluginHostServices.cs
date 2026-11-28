@@ -26,8 +26,9 @@ internal static class PluginUi
     }
 }
 
-internal sealed class PluginHostServices(AppSettings settings, Action<PluginImage, bool> publish) : IPluginHost
+internal sealed class PluginHostServices(AppSettings settings, Action<PluginImage, bool> publish) : IPluginHost, IPluginSettingsUi
 {
+    private readonly List<Form> _screenshotOverlays = [];
     public PluginManager? Manager { get; set; }
     public string Language => Localization.LanguageService.CurrentLanguage;
     internal Rectangle? PendingSelection { get; set; }
@@ -92,6 +93,73 @@ internal sealed class PluginHostServices(AppSettings settings, Action<PluginImag
         form.Disposed += (_, _) => AppTheme.Changed -= Apply;
         AppTheme.Changed += Apply;
         Apply();
+    }
+
+    public void KeepVisibleDuringScreenshot(Form form)
+    {
+        if (_screenshotOverlays.Contains(form)) return;
+        _screenshotOverlays.Add(form);
+        form.Disposed += (_, _) => _screenshotOverlays.Remove(form);
+    }
+
+    public Button CreateChoiceButton(string[] options, int selectedIndex, Action<int> onChange) =>
+        FluentChooser.Create(options, selectedIndex, onChange);
+
+    public void StyleSettingsWindow(Form form)
+    {
+        var font = settings.CreateInterfaceFont();
+        form.Disposed += (_, _) => font.Dispose();
+        form.Font = font;
+        StyleWindow(form);
+    }
+
+    public Control CreateSettingsNavigation((string Title, string Icon, Control Page)[] pages) =>
+        FluentSettingsLayout.Navigation(pages);
+
+    public Control CreateSettingRow(string label, Control field) => FluentSettingsLayout.Row(label, field);
+    public Control CreateSettingInput(TextBoxBase editor) => new FluentInputFrame(editor);
+    public Button CreateSettingsButton(string text) => new FluentButton { Text = text };
+    public CheckBox CreateSettingsToggle(bool value) => new FluentToggle { Checked = value };
+
+    public Task<string> SaveCaptureFrameAsync(Bitmap frame)
+    {
+        var folder = settings.SaveDirectory;
+        return Task.Run(() =>
+        {
+            var path = Services.SaveCaptureFile(frame, settings, folder, playSound: false);
+            AutoSavedCaptures.Record(path);
+            return path;
+        });
+    }
+
+    internal void ShowScreenshot(CaptureForm screenshot)
+    {
+        screenshot.IsCompanionWindowActive = IsScreenshotOverlayActive;
+        screenshot.Activated += (_, _) => screenshot.BeginInvoke(() =>
+        {
+            if (!screenshot.IsDisposed && screenshot.ContainsFocus) RaiseScreenshotOverlays();
+        });
+        screenshot.Shown += (_, _) => RaiseScreenshotOverlays();
+        screenshot.Show();
+    }
+
+    private bool IsScreenshotOverlayActive()
+    {
+        for (var window = Win32.GetForegroundWindow(); window != 0; window = Win32.GetWindow(window, Win32.GW_OWNER))
+        {
+            if (_screenshotOverlays.Any(form => form.Visible && form.IsHandleCreated && form.Handle == window)) return true;
+        }
+        return false;
+    }
+
+    internal void RaiseScreenshotOverlays()
+    {
+        foreach (var form in _screenshotOverlays)
+        {
+            if (!form.Visible || !form.IsHandleCreated) continue;
+            Win32.SetWindowPos(form.Handle, Win32.HWND_TOPMOST, 0, 0, 0, 0,
+                Win32.SWP_NOMOVE | Win32.SWP_NOSIZE | Win32.SWP_NOACTIVATE);
+        }
     }
 
     public void Log(string message, Exception? exception = null) => AppLog.Write(message, exception);

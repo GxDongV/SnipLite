@@ -13,6 +13,7 @@ internal sealed class PluginRecord(string directory, bool bundled = false)
     public bool IsScrollCapture => string.Equals(Manifest?.Id, BundledScrollPlugin.Id, StringComparison.OrdinalIgnoreCase);
     public bool Enabled { get; set; }
     public bool Loaded { get; set; }
+    public IPluginSettings? Settings { get; set; }
     public string Error { get; set; } = "";
     public Bitmap? Icon { get; set; }
     public string Name => IsScrollCapture ? UiText.T("长截图") : Manifest?.Name ?? Path.GetFileName(Directory);
@@ -20,7 +21,7 @@ internal sealed class PluginRecord(string directory, bool bundled = false)
         ? UiText.T("已加载") : UiText.T("已停用");
 }
 
-internal sealed record RegisteredPluginCommand(string Id, PluginText Title, Func<CancellationToken, Task> Execute, Image? Icon);
+internal sealed record RegisteredPluginCommand(string Id, PluginText Title, Func<CancellationToken, Task> Execute, Image? Icon, Func<IScreenshotPluginSession, CancellationToken, Task>? ExecuteInScreenshot = null, bool AllowScreenshotsWhileRunning = false);
 
 internal sealed class PluginManager : IDisposable
 {
@@ -45,6 +46,7 @@ internal sealed class PluginManager : IDisposable
     private string? _runningCommand;
     private bool IsEnabled(string command) => Records.Any(r => r.Enabled && r.Loaded && command.StartsWith(r.Manifest!.Id + "/", StringComparison.Ordinal));
     public bool IsRunning => _execution is not null;
+    internal bool BlocksScreenshots { get; private set; }
     public Task WhenIdle => _idle?.Task ?? Task.CompletedTask;
     public event Action? Changed;
 
@@ -352,6 +354,7 @@ internal sealed class PluginManager : IDisposable
             plugin = Activator.CreateInstance(type) as IPlugin ?? throw new InvalidDataException("Entry type must implement IPlugin.");
             context = new Context(this, manifest.Id, record.Icon);
             plugin.Initialize(context);
+            record.Settings = plugin as IPluginSettings;
             _contexts.Add(context); _loaded.Add((plugin, loader)); record.Loaded = true;
         }
         catch
@@ -398,23 +401,49 @@ internal sealed class PluginManager : IDisposable
         File.Move(_preferencesPath + ".tmp", _preferencesPath, true);
     }
 
-    public async Task ExecuteAsync(string id)
+    internal async Task ExecuteFromSelectionAsync(string id, Rectangle selection, PluginHostServices host)
     {
+        // Let DWM remove the screenshot window before the plugin opens its live UI.
+        await Task.Delay(180);
         if (_disposed || IsRunning || !_canStart()) return;
+        host.PendingSelection = selection;
+        try { await ExecuteAsync(id); }
+        finally { host.PendingSelection = null; }
+    }
+
+    internal async Task ExecuteFromScreenshotAsync(CaptureForm overlay, string id)
+    {
+        using var session = (IDisposable)overlay.CreatePluginSession();
+        void CancelPlugin(object? _, FormClosedEventArgs __) => Cancel();
+        overlay.FormClosed += CancelPlugin;
+        try { await ExecuteAsync(id, (IScreenshotPluginSession)session); }
+        finally { overlay.FormClosed -= CancelPlugin; }
+    }
+
+    public async Task ExecuteAsync(string id, IScreenshotPluginSession? screenshot = null)
+    {
+        if (_disposed || IsRunning || (screenshot is null && !_canStart())) return;
         var command = Commands.FirstOrDefault(c => c.Id == id);
         if (command is null) return;
         using var execution = new CancellationTokenSource();
         _execution = execution;
         _runningCommand = id;
+        BlocksScreenshots = !command.AllowScreenshotsWhileRunning || screenshot is not null;
         _idle = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        try { await command.Execute(execution.Token); }
+        try
+        {
+            if (screenshot is not null && command.ExecuteInScreenshot is { } docked)
+                await docked(screenshot, execution.Token);
+            else if (screenshot is null)
+                await command.Execute(execution.Token);
+        }
         catch (OperationCanceledException) when (execution.IsCancellationRequested) { }
         catch (Exception ex)
         {
             _host.Log("Plugin command failed: " + id, ex);
             if (!_disposed) MessageBox.Show(ex.GetBaseException().Message, command.Title.Get(_host.Language), MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
-        finally { _execution = null; _runningCommand = null; _idle.TrySetResult(); }
+        finally { _execution = null; _runningCommand = null; BlocksScreenshots = false; _idle.TrySetResult(); }
     }
 
     public void Cancel() => _execution?.Cancel();
@@ -430,7 +459,7 @@ internal sealed class PluginManager : IDisposable
             loader.Unload();
         }
         _contexts.Clear(); _loaded.Clear();
-        foreach (var record in Records) { record.Icon?.Dispose(); record.Icon = null; }
+        foreach (var record in Records) { record.Icon?.Dispose(); record.Icon = null; record.Settings = null; }
     }
 
     private sealed class Registration(Action remove) : IDisposable
@@ -455,7 +484,7 @@ internal sealed class PluginManager : IDisposable
         {
             var id = FullId(command.Id);
             if (manager._commands.Any(c => c.Id.Equals(id, StringComparison.OrdinalIgnoreCase))) throw new ArgumentException("Duplicate command: " + id);
-            var entry = new RegisteredPluginCommand(id, command.Title, command.ExecuteAsync, icon);
+            var entry = new RegisteredPluginCommand(id, command.Title, command.ExecuteAsync, icon, command.ExecuteInScreenshotAsync, command.AllowScreenshotsWhileRunning);
             manager._commands.Add(entry);
             var token = new Registration(() => manager._commands.Remove(entry));
             _registrations.Add(token); return token;

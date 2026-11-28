@@ -315,7 +315,9 @@ internal sealed class MosaicShape : StrokeAreaShape
 {
     public int Block = 12;
 
-    public override void Render(Graphics g, Bitmap screen)
+    public override void Render(Graphics g, Bitmap screen) => Render(g, screen, Point.Empty);
+
+    internal void Render(Graphics g, Bitmap screen, Point sourceOrigin)
     {
         using var path = AreaPath();
         var state = g.Save();
@@ -331,10 +333,12 @@ internal sealed class MosaicShape : StrokeAreaShape
             (int)Math.Floor(bounds.Top / (double)block) * block,
             (int)Math.Ceiling(bounds.Right / (double)block) * block,
             (int)Math.Ceiling(bounds.Bottom / (double)block) * block),
-            new Rectangle(0, 0, screen.Width, screen.Height));
+            new Rectangle(sourceOrigin, screen.Size));
         if (area.Width <= 0 || area.Height <= 0) { g.Restore(state); return; }
 
-        var data = screen.LockBits(area, ImageLockMode.ReadOnly, screen.PixelFormat);
+        var sample = area;
+        sample.Offset(-sourceOrigin.X, -sourceOrigin.Y);
+        var data = screen.LockBits(sample, ImageLockMode.ReadOnly, screen.PixelFormat);
 
         try
         {
@@ -433,14 +437,20 @@ internal sealed class MarkerShape : StrokeAreaShape
 
 internal static class AnnotationRenderer
 {
-    public static void RenderLayer(Bitmap layer, Rectangle crop, Bitmap screenshot, IEnumerable<Shape> shapes, Shape? current = null)
+    public static void RenderLayer(Bitmap layer, Rectangle crop, Bitmap screenshot, IEnumerable<Shape> shapes, Shape? current = null, Point sourceOrigin = default)
     {
         using var g = Graphics.FromImage(layer);
         g.Clear(System.Drawing.Color.Transparent);
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.TranslateTransform(-crop.X, -crop.Y);
         g.SetClip(crop);
-        foreach (var shape in shapes) shape.Render(g, screenshot);
-        current?.Render(g, screenshot);
+        foreach (var shape in shapes) Render(shape);
+        if (current is not null) Render(current);
+
+        void Render(Shape shape)
+        {
+            if (shape is MosaicShape mosaic) mosaic.Render(g, screenshot, sourceOrigin);
+            else shape.Render(g, screenshot);
+        }
     }
 }

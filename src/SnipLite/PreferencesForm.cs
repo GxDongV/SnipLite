@@ -273,24 +273,8 @@ internal sealed partial class PreferencesForm : Form
 
         foreach (var (rect, index) in _tabRects)
         {
-            var active = index == _selected;
-
-            if (active || index == _hoverTab)
-            {
-                using var path = FluentDrawing.Rounded(rect, Px(5));
-                using var fill = new SolidBrush(active ? palette.Card : palette.Hover);
-                g.FillPath(fill, path);
-            }
-            if (active)
-            {
-                using var indicator = new SolidBrush(palette.Accent);
-                using var path = FluentDrawing.Rounded(new Rectangle(rect.Left, rect.Top + Px(10), Px(3), rect.Height - Px(20)), Px(2));
-                g.FillPath(indicator, path);
-            }
-            FluentIcons.Draw(g, TabIcons[index], new Rectangle(rect.X + Px(12), rect.Y + Px(8), Px(20), Px(20)), Ink);
-            TextRenderer.DrawText(g, UiText.T(_tabs[index], _s.DisplayLanguage), Font,
-                new Rectangle(rect.X + Px(43), rect.Y, rect.Width - Px(47), rect.Height), Ink,
-                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+            FluentSettingsLayout.DrawNavigationItem(g, rect, UiText.T(_tabs[index], _s.DisplayLanguage),
+                TabIcons[index], Font, _ui, index == _selected, index == _hoverTab);
         }
         TextRenderer.DrawText(g, AppInfo.Version, Font, new Rectangle(Px(24), ClientSize.Height - Px(34), Px(130), Px(20)), Hint);
         var footerY = ClientSize.Height - Px(FooterH) + Px(13);
@@ -814,73 +798,8 @@ internal sealed partial class PreferencesForm : Form
         var nativeLanguages = options.SequenceEqual(new[] { UiText.T("跟随系统") }
             .Concat(Localization.LanguageService.Languages.Select(l => l.NativeName)));
         if (!nativeLanguages) options = options.Select(option => UiText.T(option, _s.DisplayLanguage)).ToArray();
-        var button = new FluentButton
-        {
-            Tag = nativeLanguages ? "localization:native" : null,
-            DropDown = true,
-            Text = options[Math.Clamp(selected, 0, options.Length - 1)],
-            AutoSize = false,
-            FlatStyle = FlatStyle.Flat,
-            BackColor = Field,
-            ForeColor = Ink,
-            TextAlign = ContentAlignment.MiddleLeft,
-            Padding = new Padding(Px(8), 0, Px(26), 0),
-            Width = Px(190),
-            Height = Px(ControlH),
-            TabStop = true
-        };
-
-        button.FlatAppearance.BorderColor = FieldEdge;
-        button.FlatAppearance.MouseOverBackColor = AppTheme.Current.Hover;
-        button.FlatAppearance.MouseDownBackColor = AppTheme.Current.AccentSoft;
-
-        // Keep one menu per chooser. ContextMenuStrip is a shared-reference
-        // property, so the button does not dispose it automatically. Release
-        // it after the closing stack unwinds when its page is rebuilt.
-        var menu = SnipMenu.Create(roundedPopup: true);
-        var items = new ToolStripMenuItem[options.Length];
-
-        button.ContextMenuStrip = menu;
-        button.Disposed += (_, _) => SnipMenu.DisposeAfterClose(menu);
-
-        for (var i = 0; i < options.Length; i++)
-        {
-            var index = i;
-
-            items[i] = SnipMenu.Item(options[i], () =>
-            {
-                button.Text = options[index];
-                onChange(index);
-            });
-            items[i].Tag = null;
-            if (nativeLanguages) items[i].Tag = "localization:native";
-            items[i].Text = options[i];
-
-            menu.Items.Add(items[i]);
-        }
-
-        menu.Opening += (_, _) =>
-        {
-            menu.MinimumSize = new Size(button.Width, 0);
-            var width = Math.Max(button.Width, menu.GetPreferredSize(Size.Empty).Width);
-            for (var i = 0; i < items.Length; i++)
-            {
-                items[i].Checked = options[i] == button.Text;
-                // The popup minimum width does not stretch WinForms' menu items.
-                var preferred = items[i].GetPreferredSize(Size.Empty);
-                items[i].AutoSize = false;
-                items[i].Size = new Size(width, preferred.Height);
-            }
-        };
-
-        button.Click += (_, _) => menu.Show(button, new Point(0, button.Height + Px(2)));
-        button.KeyDown += (_, e) =>
-        {
-            if (e.KeyCode is not (Keys.Down or Keys.Up or Keys.F4)) return;
-            menu.Show(button, new Point(0, button.Height + Px(2)));
-            items[Math.Clamp(Array.FindIndex(options, option => option == button.Text), 0, items.Length - 1)].Select();
-            e.Handled = e.SuppressKeyPress = true;
-        };
+        var button = FluentChooser.Create(options, selected, onChange, nativeLanguages);
+        button.Size = new Size(Px(190), Px(ControlH));
         return button;
     }
 

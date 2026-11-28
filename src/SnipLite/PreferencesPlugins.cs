@@ -123,6 +123,21 @@ internal sealed partial class PreferencesForm
             if (plugins.CanRestoreBundled(record))
                 AddAction("恢复内置版本", "重启后将恢复 {0} 的内置版本。保留设置和数据。",
                     true, () => plugins.RestoreBundled(record));
+            if (record.Enabled && record.Settings is { } settings)
+            {
+                var configure = new FluentButton();
+                StyleButton(configure, "设置");
+                configure.Bounds = new Rectangle(row.Width - configure.Width - Px(14) - actionWidth,
+                    (row.Height - configure.Height) / 2, configure.Width, configure.Height);
+                configure.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+                actionWidth += configure.Width + Px(12);
+                configure.Click += (_, _) =>
+                {
+                    try { settings.ShowSettings(this); }
+                    catch (Exception ex) { MessageBox.Show(this, ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                };
+                row.Controls.Add(configure);
+            }
             var toggle = new FluentToggle
             {
                 Text = record.Name + version + "  ·  " + record.Status,

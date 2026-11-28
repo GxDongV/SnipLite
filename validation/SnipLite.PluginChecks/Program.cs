@@ -19,6 +19,9 @@ internal static class Program
     private static int Main(string[] args)
     {
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2); Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); AppTheme.Refresh();
+        if (args.Length is 2 or 3 && args[0] == "--recorder-package")
+            return RecorderIntegration.Run(Path.GetFullPath(args[1]), args.Length == 3 ? Path.GetFullPath(args[2]) : null);
+        if (args is ["--recorder-benchmark", var recorderPackage]) return RecorderIntegration.Run(Path.GetFullPath(recorderPackage), benchmark: true);
         if (args.Contains("--demo")) { Application.Run(new ScrollDemo()); return 0; }
         try
         {
@@ -1185,6 +1188,11 @@ internal static class Program
         bar.HiddenButtons = new HashSet<string>(); bar.PluginButtons = Enumerable.Range(0, 25).Select(i => ($"plugin/{i}", "Plugin " + i, (Image?)null)).ToArray();
         bar.Layout(selection, new Size(800, 900));
         Check(bar.MainBounds.Width < 800 && bar.MainBounds.Height > 44, "many plugin buttons wrap within screen");
+        bar.ButtonOrder = AnnotationBar.BuiltInButtons.Select(b => b.Id).ToArray();
+        bar.PluginButtons = [("sniplite.screen-recorder/record", "Record", null)];
+        var withNewRecorder = bar.OrderedButtons().ToArray();
+        Check(Array.IndexOf(withNewRecorder, "sniplite.screen-recorder/record") < Array.IndexOf(withNewRecorder, "close"),
+            "new recorder remains in the plugin group after a toolbar order was saved");
         var host = new PluginHostServices(new AppSettings(), (_, _) => { }) { PendingSelection = selection };
         Check(host.SelectRegionAsync(CancellationToken.None).Result == selection && host.PendingSelection is null, "F1 plugin invocation consumes existing region once");
     }
